@@ -46,7 +46,7 @@ installers:
   - dir: ./project1
     cmd: pip install -r requirements.txt
 
-servers:
+services:
   - name: server1
     cmd: python -m http.server 8000
     dir: ./project1
