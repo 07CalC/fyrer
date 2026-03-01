@@ -1,5 +1,9 @@
 use crate::config::Service;
+use crate::env_parser::parse_env;
 use colored::Colorize;
+use std::fs::File;
+use std::io::Read;
+use std::path::Path;
 use std::process::Stdio;
 use tokio::io::AsyncBufReadExt;
 use tokio::process::{Child, Command};
@@ -23,6 +27,24 @@ pub async fn spawn_service(
     cmd.current_dir(&service.dir);
     cmd.stdout(Stdio::piped());
     cmd.stderr(Stdio::piped());
+    let dotenv_path;
+    if let Some(env_path) = &service.env_path {
+        dotenv_path = Path::new(&service.dir).join(env_path);
+    } else {
+        dotenv_path = Path::new(&service.dir).join(".env");
+    }
+
+    if let Ok(mut dotenv) = File::open(&dotenv_path) {
+        let mut content = String::new();
+        if let Err(_) = dotenv.read_to_string(&mut content) {
+        } else {
+            let envs = parse_env(&content);
+            for (k, v) in envs.into_iter() {
+                cmd.env(k, v);
+            }
+        }
+    }
+
     if let Some(envs) = &service.env {
         for (key, value) in envs {
             cmd.env(key, value);

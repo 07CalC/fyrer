@@ -4,6 +4,7 @@ use crate::{colors::COLORS, parser::load_config};
 
 mod colors;
 mod config;
+mod env_parser;
 mod installer;
 mod kill_process;
 mod parser;
