@@ -27,7 +27,13 @@ pub async fn spawn_service(
     cmd.current_dir(&service.dir);
     cmd.stdout(Stdio::piped());
     cmd.stderr(Stdio::piped());
-    let dotenv_path = Path::new(&service.dir).join(".env");
+    let dotenv_path;
+    if let Some(env_path) = &service.env_path {
+        dotenv_path = Path::new(&service.dir).join(env_path);
+    } else {
+        dotenv_path = Path::new(&service.dir).join(".env");
+    }
+
     if let Ok(mut dotenv) = File::open(&dotenv_path) {
         let mut content = String::new();
         if let Err(_) = dotenv.read_to_string(&mut content) {

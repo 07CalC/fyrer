@@ -7,7 +7,8 @@ lightweight tool to run multiple dev servers concurrently
 - Run multiple development servers concurrently
 - Define installer commands that run before starting each server
 - Set a working directory per server
-- Assign environment variables per server
+- Automatic env parsing from .env file
+- Assign environment variables per server (overrides the env file)
 - YAML-based configuration file
 - Prefixed log output for readability
 - Cross-platform support (Linux, macOS, Windows)
@@ -50,7 +51,8 @@ services:
   - name: server1
     cmd: python -m http.server 8000
     dir: ./project1
-    env:
+    env_path: .env.local  ## .env file path
+    env:                  ## overrides the .env file
       PORT: 8000
       ENV: dev
 
