@@ -12,11 +12,10 @@ pub fn print_banner() {
         r#"$$ |    $$    $$ |$$ |      $$       |$$ |      "#,
         r#"$$/      $$$$$$$ |$$/        $$$$$$$/ $$/       "#,
         r#"        /  \__$$ |                              "#,
-        r#"        $$    $$/     version: 0.2.1            "#,
+        r#"        $$    $$/     version: 0.2.2            "#,
         r#"         $$$$$$/      made with <3 by CalC      "#,
     ];
 
-    // Determine max width
     let max_len = banner_lines.iter().map(|l| l.len()).max().unwrap_or(0);
     let horizontal_border = "─".repeat(max_len + 1);
 
