@@ -47,6 +47,7 @@ services:
     cmd: npm start
     dir: ./project2
     watch: true  # enable hot reload
+    quiet: true  # disable logs
     ignore:
       - "node_modules/**"
       - "*.db"
