@@ -2,19 +2,6 @@
 
 lightweight tool to run multiple dev servers concurrently
 
-## Features
-
-- Run multiple development servers concurrently
-- Define installer commands that run before starting each server
-- Set a working directory per server
-- Automatic env parsing from .env file
-- Assign environment variables per server (overrides the env file)
-- YAML-based configuration file
-- Prefixed log output for readability
-- Cross-platform support (Linux, macOS, Windows)
-- Optional hot reload
-- Configurable file and directory ignore rules for hot reload
-
 ## Installation
 
 ### install using cargo:
@@ -65,8 +52,22 @@ services:
       - "*.db"
 ```
 
+## Features
+
+- Run multiple development servers concurrently
+- Define installer commands that run before starting each server
+- Set a working directory per server
+- Automatic env parsing from .env file
+- Assign environment variables per server (overrides the env file)
+- YAML-based configuration file
+- Prefixed log output for readability
+- Cross-platform support (Linux, macOS, Windows)
+- Optional hot reload
+- Configurable file and directory ignore rules for hot reload
+
 ## Notes
 
 - `watch: true` enables file monitoring for that server.
 - Ignore patterns follow `glob` syntax.
 - restarts servers when watched files change.
+- envs defined in `fyrer.yml` overrides those in `.env` file.
