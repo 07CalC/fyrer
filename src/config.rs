@@ -4,6 +4,7 @@ use serde_derive::Deserialize;
 
 #[derive(Debug, Deserialize)]
 pub struct FyrerConfig {
+    pub tui: Option<bool>,
     pub installers: Option<Vec<Installer>>,
     pub services: Vec<Service>,
 }

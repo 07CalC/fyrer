@@ -1,18 +1,19 @@
+use crate::cli::logger::{Log, LogKind};
 use crate::config::Service;
 use crate::env_parser::parse_env;
-use colored::Colorize;
 use std::fs::File;
 use std::io::Read;
 use std::path::Path;
 use std::process::Stdio;
 use tokio::io::AsyncBufReadExt;
 use tokio::process::{Child, Command};
+use tokio::sync::mpsc::Sender;
 
 pub async fn spawn_service(
     service: &Service,
     color: colored::Color,
     wait: bool,
-    max_name_len: usize,
+    logger: Sender<Log>,
 ) -> Option<Child> {
     #[cfg(unix)]
     let mut cmd = Command::new("sh");
@@ -27,79 +28,101 @@ pub async fn spawn_service(
     cmd.current_dir(&service.dir);
     cmd.stdout(Stdio::piped());
     cmd.stderr(Stdio::piped());
-    let dotenv_path;
-    if let Some(env_path) = &service.env_path {
-        dotenv_path = Path::new(&service.dir).join(env_path);
+
+    let dotenv_path = if let Some(env_path) = &service.env_path {
+        Path::new(&service.dir).join(env_path)
     } else {
-        dotenv_path = Path::new(&service.dir).join(".env");
-    }
+        Path::new(&service.dir).join(".env")
+    };
 
     if let Ok(mut dotenv) = File::open(&dotenv_path) {
         let mut content = String::new();
-        if let Err(_) = dotenv.read_to_string(&mut content) {
-        } else {
+        if dotenv.read_to_string(&mut content).is_ok() {
             let envs = parse_env(&content);
-            for (k, v) in envs.into_iter() {
+            for (k, v) in envs {
                 cmd.env(k, v);
             }
         }
     }
 
+    // -------- Inline env --------
     if let Some(envs) = &service.env {
         for (key, value) in envs {
             cmd.env(key, value);
         }
     }
 
-    let out_prefix = format!("[{}]", service.name);
-    let padded_name = format!("{:<width$}", out_prefix.clone(), width = max_name_len);
-
-    println!(
-        "├─{} ➤ Starting service... {}",
-        padded_name.color(color).bold(),
-        service.cmd.bright_white()
-    );
+    let _ = logger
+        .send(Log {
+            service: service.name.clone(),
+            message: format!("Starting service... {}", service.cmd),
+            kind: LogKind::System,
+            color,
+        })
+        .await;
 
     let mut child = cmd.spawn().ok()?;
+
     let stdout = child.stdout.take().expect("Failed to capture stdout");
     let stderr = child.stderr.take().expect("Failed to capture stderr");
 
     let quiet = service.quiet.unwrap_or(false);
 
     if !quiet {
-        let name = service.name.clone();
+        let service_name = service.name.clone();
+
         let mut stdout_reader = tokio::io::BufReader::new(stdout).lines();
         let mut stderr_reader = tokio::io::BufReader::new(stderr).lines();
 
-        let name_prefix = format!("[{}] ", name).color(color).bold();
-        let out_prefix = name_prefix.clone();
-        let err_prefix = name_prefix.clone();
+        {
+            let logger = logger.clone();
+            let name = service_name.clone();
 
-        tokio::spawn(async move {
-            while let Ok(Some(line)) = stdout_reader.next_line().await {
-                let padded_name = format!("{:<width$}", out_prefix.clone(), width = max_name_len);
-                println!(
-                    "├─{} ➤ {}",
-                    padded_name.bright_cyan().bold(),
-                    line.color(color)
-                );
-            }
-        });
+            tokio::spawn(async move {
+                while let Ok(Some(line)) = stdout_reader.next_line().await {
+                    let _ = logger
+                        .send(Log {
+                            service: name.clone(),
+                            message: line,
+                            kind: LogKind::Output,
+                            color,
+                        })
+                        .await;
+                }
+            });
+        }
 
-        tokio::spawn(async move {
-            while let Ok(Some(line)) = stderr_reader.next_line().await {
-                let padded_name = format!("{:<width$}", err_prefix.clone(), width = max_name_len);
-                eprintln!(
-                    "├─{} ⚠ {}",
-                    padded_name.bright_red().bold(),
-                    line.bright_red().bold()
-                );
-            }
-        });
+        {
+            let logger = logger.clone();
+            let name = service_name.clone();
+
+            tokio::spawn(async move {
+                while let Ok(Some(line)) = stderr_reader.next_line().await {
+                    let _ = logger
+                        .send(Log {
+                            service: name.clone(),
+                            message: line,
+                            kind: LogKind::Error,
+                            color,
+                        })
+                        .await;
+                }
+            });
+        }
     }
 
     if wait {
         let _ = child.wait().await;
+
+        let _ = logger
+            .send(Log {
+                service: service.name.clone(),
+                message: "Service exited".into(),
+                kind: LogKind::System,
+                color,
+            })
+            .await;
+
         return None;
     }
 
