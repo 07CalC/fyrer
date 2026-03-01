@@ -17,6 +17,7 @@ pub struct Service {
     pub watch: Option<bool>,
     pub ignore: Option<Vec<String>>,
     pub env_path: Option<String>,
+    pub quiet: Option<bool>,
 }
 
 #[derive(Debug, Deserialize, Clone)]

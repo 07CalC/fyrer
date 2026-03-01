@@ -64,35 +64,39 @@ pub async fn spawn_service(
     let stdout = child.stdout.take().expect("Failed to capture stdout");
     let stderr = child.stderr.take().expect("Failed to capture stderr");
 
-    let name = service.name.clone();
-    let mut stdout_reader = tokio::io::BufReader::new(stdout).lines();
-    let mut stderr_reader = tokio::io::BufReader::new(stderr).lines();
+    let quiet = service.quiet.unwrap_or(false);
 
-    let name_prefix = format!("[{}] ", name).color(color).bold();
-    let out_prefix = name_prefix.clone();
-    let err_prefix = name_prefix.clone();
+    if !quiet {
+        let name = service.name.clone();
+        let mut stdout_reader = tokio::io::BufReader::new(stdout).lines();
+        let mut stderr_reader = tokio::io::BufReader::new(stderr).lines();
 
-    tokio::spawn(async move {
-        while let Ok(Some(line)) = stdout_reader.next_line().await {
-            let padded_name = format!("{:<width$}", out_prefix.clone(), width = max_name_len);
-            println!(
-                "├─{} ➤ {}",
-                padded_name.bright_cyan().bold(),
-                line.color(color)
-            );
-        }
-    });
+        let name_prefix = format!("[{}] ", name).color(color).bold();
+        let out_prefix = name_prefix.clone();
+        let err_prefix = name_prefix.clone();
 
-    tokio::spawn(async move {
-        while let Ok(Some(line)) = stderr_reader.next_line().await {
-            let padded_name = format!("{:<width$}", err_prefix.clone(), width = max_name_len);
-            eprintln!(
-                "├─{} ⚠ {}",
-                padded_name.bright_red().bold(),
-                line.bright_red().bold()
-            );
-        }
-    });
+        tokio::spawn(async move {
+            while let Ok(Some(line)) = stdout_reader.next_line().await {
+                let padded_name = format!("{:<width$}", out_prefix.clone(), width = max_name_len);
+                println!(
+                    "├─{} ➤ {}",
+                    padded_name.bright_cyan().bold(),
+                    line.color(color)
+                );
+            }
+        });
+
+        tokio::spawn(async move {
+            while let Ok(Some(line)) = stderr_reader.next_line().await {
+                let padded_name = format!("{:<width$}", err_prefix.clone(), width = max_name_len);
+                eprintln!(
+                    "├─{} ⚠ {}",
+                    padded_name.bright_red().bold(),
+                    line.bright_red().bold()
+                );
+            }
+        });
+    }
 
     if wait {
         let _ = child.wait().await;
