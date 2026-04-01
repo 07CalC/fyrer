@@ -5,11 +5,11 @@ use serde_derive::Deserialize;
 #[derive(Debug, Deserialize)]
 pub struct FyrerConfig {
     pub installers: Option<Vec<Installer>>,
-    pub services: Vec<Service>,
+    pub services: Vec<Project>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
-pub struct Service {
+pub struct Project {
     pub name: String,
     pub dir: String,
     pub cmd: String,

@@ -2,15 +2,18 @@ use colored::Colorize;
 
 use crate::{colors::COLORS, parser::load_config};
 
+mod cli;
 mod colors;
 mod config;
-mod env_parser;
+mod core;
+mod executor;
 mod installer;
 mod kill_process;
 mod parser;
 mod print_banner;
 mod runner;
 mod spawn_service;
+mod utils;
 mod watcher;
 
 #[tokio::main]

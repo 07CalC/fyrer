@@ -1,5 +1,5 @@
-use crate::config::Service;
-use crate::env_parser::parse_env;
+use crate::config::Project;
+use crate::utils::env::parse_env_for_project;
 use colored::Colorize;
 use std::fs::File;
 use std::io::Read;
@@ -9,7 +9,7 @@ use tokio::io::AsyncBufReadExt;
 use tokio::process::{Child, Command};
 
 pub async fn spawn_service(
-    service: &Service,
+    service: &Project,
     color: colored::Color,
     wait: bool,
     max_name_len: usize,
@@ -38,7 +38,7 @@ pub async fn spawn_service(
         let mut content = String::new();
         if let Err(_) = dotenv.read_to_string(&mut content) {
         } else {
-            let envs = parse_env(&content);
+            let envs = parse_env_for_project(&service);
             for (k, v) in envs.into_iter() {
                 cmd.env(k, v);
             }

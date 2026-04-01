@@ -1,4 +1,4 @@
-use crate::config::Service;
+use crate::config::Project;
 use crate::kill_process::kill_process;
 use crate::spawn_service::spawn_service;
 use colored::Colorize;
@@ -12,7 +12,7 @@ use tokio::{
     time::{Duration, sleep},
 };
 
-pub async fn run_with_watch(service: Service, color: colored::Color, max_name_len: usize) {
+pub async fn run_with_watch(service: Project, color: colored::Color, max_name_len: usize) {
     let (tx, mut rx) = mpsc::channel(1);
     let watch_dir = Path::new(&service.dir);
 
