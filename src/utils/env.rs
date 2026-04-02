@@ -1,4 +1,4 @@
-use std::{collections::HashMap, fs::File, io::Read, path::Path};
+use std::{collections::HashMap, fs::File, io::Read};
 
 use crate::config::Project;
 
@@ -22,13 +22,7 @@ fn parse_env(content: &str, out: &mut HashMap<String, String>) {
 
 pub fn parse_env_for_project(project: &Project) -> HashMap<String, String> {
     let mut out = HashMap::new();
-    let dotenv_path = if let Some(env_path) = &project.env_path {
-        Path::new(&project.dir).join(env_path)
-    } else {
-        Path::new(&project.dir).join(".env")
-    };
-
-    if let Ok(mut dotenv) = File::open(dotenv_path) {
+    if let Ok(mut dotenv) = File::open(project.get_env_path()) {
         let mut content = String::new();
         if let Err(_) = dotenv.read_to_string(&mut content) {
         } else {

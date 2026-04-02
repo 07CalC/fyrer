@@ -1,27 +1,29 @@
-use std::collections::HashMap;
+pub(crate) mod parser;
 
 use serde_derive::Deserialize;
+use std::collections::HashMap;
 
 #[derive(Debug, Deserialize)]
 pub struct FyrerConfig {
-    pub installers: Option<Vec<Installer>>,
-    pub services: Vec<Project>,
+    pub Projects: Vec<Project>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct Project {
     pub name: String,
-    pub dir: String,
-    pub cmd: String,
+    pub root: String,
+    pub setup: Option<String>,
     pub env: Option<HashMap<String, String>>,
-    pub watch: Option<bool>,
-    pub ignore: Option<Vec<String>>,
     pub env_path: Option<String>,
-    pub quiet: Option<bool>,
+    pub tasks: HashMap<String, Task>,
 }
 
 #[derive(Debug, Deserialize, Clone)]
-pub struct Installer {
-    pub dir: String,
+pub struct Task {
+    pub dir: Option<String>,
     pub cmd: String,
+    pub watch: String,
+    pub env: Option<HashMap<String, String>>,
+    pub env_path: Option<String>,
+    pub quiet: Option<bool>,
 }

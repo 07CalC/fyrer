@@ -20,6 +20,7 @@ serde_yaml = "0.9.34"
 tokio = { version = "1.0", features = ["full"] }
 notify = "6.1"
 globset = "0.4.18"
+anyhow = "1.0.102"
 
 [dev-dependencies]
 tempfile = "3.27.0"

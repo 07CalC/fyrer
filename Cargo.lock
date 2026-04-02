@@ -160,6 +160,7 @@ dependencies = [
 name = "fyrer"
 version = "0.2.2"
 dependencies = [
+ "anyhow",
  "clearscreen",
  "colored",
  "globset",
