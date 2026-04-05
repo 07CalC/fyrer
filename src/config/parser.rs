@@ -1,23 +1,13 @@
-use std::{fs, process};
+use crate::{config::types::FyrerConfig, error::FyrerError};
+use std::fs;
 
-use crate::config::FyrerConfig;
-
-pub fn load_config(path: &str) -> FyrerConfig {
-    let data = match fs::read_to_string(path) {
-        Ok(content) => content,
-        Err(_) => {
-            eprintln!("Failed to read configuration file: {}", path);
-            process::exit(1)
-        }
-    };
+pub fn load_config(path: &str) -> Result<FyrerConfig, FyrerError> {
+    if fs::exists(path).unwrap_or(false) == false {
+        return Err(FyrerError::FileNotFound(path.to_string()));
+    }
+    let data = fs::read_to_string(path)?;
     match serde_yaml::from_str(&data) {
-        Ok(config) => config,
-        Err(e) => {
-            eprintln!(
-                "Failed to parse configuration file: {}\n incorrect YAML format",
-                e
-            );
-            process::exit(1)
-        }
+        Ok(config) => Ok(config),
+        Err(e) => return Err(FyrerError::InvalidConfig(e.to_string())),
     }
 }

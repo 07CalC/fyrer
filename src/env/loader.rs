@@ -1,10 +1,20 @@
-use std::{collections::HashMap, fs::File, io::Read};
+use std::{collections::HashMap, fs};
 
-use crate::config::Project;
+use crate::error::FyrerError;
 
-fn parse_env(content: &str, out: &mut HashMap<String, String>) {
+pub fn load_env_from_file(path: &str) -> Result<HashMap<String, String>, FyrerError> {
+    if fs::exists(&path).unwrap_or(false) == false {
+        return Err(FyrerError::FileNotFound(path.to_string()));
+    }
+    let content = fs::read_to_string(&path)?;
+    let out = parse_env(&content);
+    Ok(out)
+}
+
+fn parse_env(content: &str) -> HashMap<String, String> {
+    let mut out = HashMap::new();
     if content.is_empty() {
-        return;
+        return out;
     }
     for line in content.lines() {
         if line.starts_with("#") || line.is_empty() {
@@ -18,17 +28,7 @@ fn parse_env(content: &str, out: &mut HashMap<String, String>) {
             }
         }
     }
-}
 
-pub fn parse_env_for_project(project: &Project) -> HashMap<String, String> {
-    let mut out = HashMap::new();
-    if let Ok(mut dotenv) = File::open(project.get_env_path()) {
-        let mut content = String::new();
-        if let Err(_) = dotenv.read_to_string(&mut content) {
-        } else {
-            parse_env(&content, &mut out);
-        }
-    }
     out
 }
 
@@ -39,8 +39,7 @@ mod tests {
     #[test]
     fn parse_basic_key_value() {
         let input = "PORT=3000";
-        let mut out = HashMap::new();
-        parse_env(&input, &mut out);
+        let out = parse_env(&input);
         assert_eq!(out.get("PORT").unwrap(), "3000")
     }
 
@@ -52,8 +51,7 @@ mod tests {
 
           PORT=3000
         "#;
-        let mut out = HashMap::new();
-        parse_env(&input, &mut out);
+        let out = parse_env(&input);
         assert_eq!(out.get("PORT").unwrap(), "3000")
     }
 
@@ -63,8 +61,7 @@ mod tests {
         this is an invalid line
         PORT=3000
         "#;
-        let mut out = HashMap::new();
-        parse_env(&input, &mut out);
+        let out = parse_env(&input);
         assert_eq!(out.len(), 1);
         assert_eq!(out.get("PORT").unwrap(), "3000")
     }
@@ -78,8 +75,7 @@ mod tests {
         let input = r#"
         PORT= 3000 # comment
         "#;
-        let mut out = HashMap::new();
-        parse_env(&input, &mut out);
+        let out = parse_env(&input);
         assert_eq!(out.get("PORT").unwrap(), "3000")
     }
 
@@ -88,8 +84,16 @@ mod tests {
         let input = r#"
         PORT="3000"
         "#;
-        let mut out = HashMap::new();
-        parse_env(&input, &mut out);
+        let out = parse_env(&input);
         assert_eq!(out.get("PORT").unwrap(), "\"3000\"")
+    }
+
+    #[test]
+    fn handle_file_not_exist() {
+        let out = load_env_from_file(".env");
+        assert_eq!(
+            out.unwrap_err().to_string(),
+            "File not found: .env".to_string()
+        );
     }
 }

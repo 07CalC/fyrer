@@ -1,2 +1,2 @@
-pub(crate) mod project;
-pub(crate) mod task;
+pub(crate) mod projects;
+pub(crate) mod tasks;
