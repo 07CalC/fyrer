@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, path::Path};
 
 use crate::{config::types::Project, env::loader::load_env_from_file, error::FyrerError};
 
@@ -9,7 +9,8 @@ impl Project {
     pub fn get_project_env(&self) -> HashMap<String, String> {
         let mut out = HashMap::new();
         if let Some(env_path) = &self.env_path {
-            match load_env_from_file(&env_path) {
+            let path_buf = Path::new(&self.root).join(env_path);
+            match load_env_from_file(path_buf) {
                 Ok(env) => out = env,
                 Err(e) => println!("Error in project {} : {}", self.name, e.to_string()),
             }

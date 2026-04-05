@@ -1,10 +1,10 @@
-use std::{collections::HashMap, fs};
+use std::{collections::HashMap, fs, path::PathBuf};
 
 use crate::error::FyrerError;
 
-pub fn load_env_from_file(path: &str) -> Result<HashMap<String, String>, FyrerError> {
+pub fn load_env_from_file(path: PathBuf) -> Result<HashMap<String, String>, FyrerError> {
     if fs::exists(&path).unwrap_or(false) == false {
-        return Err(FyrerError::FileNotFound(path.to_string()));
+        return Err(FyrerError::FileNotFound(path.to_string_lossy().to_string()));
     }
     let content = fs::read_to_string(&path)?;
     let out = parse_env(&content);
@@ -34,6 +34,8 @@ fn parse_env(content: &str) -> HashMap<String, String> {
 
 #[cfg(test)]
 mod tests {
+    use std::path::{self, Path};
+
     use super::*;
 
     #[test]
@@ -90,7 +92,7 @@ mod tests {
 
     #[test]
     fn handle_file_not_exist() {
-        let out = load_env_from_file(".env");
+        let out = load_env_from_file(Path::new(".env").to_path_buf());
         assert_eq!(
             out.unwrap_err().to_string(),
             "File not found: .env".to_string()
