@@ -1,22 +1,18 @@
-[package]
-name = "fyrer"
-version = "0.2.2"
+[workspace]
+resolver = "3"
+members = ["crates/*"]
+default-members = ["crates/cli"]
+
+[workspace.package]
+version = "0.3.0"
 edition = "2024"
-authors = ["Calc hello@vinm.me"]
-description = "A lightweight tool to run multiple dev servers concurrently"
-readme = "README.md"
+authors = ["Calc <hello@vinm.me>"]
 license = "MIT"
 repository = "https://github.com/07calc/fyrer"
-keywords = ["dev", "server", "concurrent", "tool"]
-categories = ["development-tools"]
-exclude = ["/target/*", "*.rs.bk", "*.log", "examples/*"]
 
-[dependencies]
-clearscreen = "4.0.2"
-colored = "2.0"
+[workspace.dependencies]
+anyhow = "1.0"
+clap = { version = "4.5", features = ["derive"] }
 serde = { version = "1.0", features = ["derive"] }
-serde_derive = "1.0.228"
-serde_yaml = "0.9.34"
-tokio = { version = "1.0", features = ["full"] }
-notify = "6.1"
-globset = "0.4.18"
+serde_yaml = "0.9"
+thiserror = "1.0"

@@ -1,0 +1,10 @@
+[package]
+name = "fyrer-cache"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+fyrer-types = { path = "../types" }

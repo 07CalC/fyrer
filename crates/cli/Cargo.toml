@@ -1,0 +1,18 @@
+[package]
+name = "fyrer"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Graph-based monorepo execution engine"
+readme = "../../README.md"
+
+[dependencies]
+anyhow.workspace = true
+clap.workspace = true
+fyrer-config = { path = "../config" }
+fyrer-executor = { path = "../executor" }
+fyrer-graph = { path = "../graph" }
+fyrer-scheduler = { path = "../scheduler" }
+fyrer-types = { path = "../types" }
