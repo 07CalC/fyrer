@@ -1,0 +1,104 @@
+version: 1
+
+env:
+  LOG_LEVEL: info
+  NODE_ENV: development
+
+projects:
+  - name: web
+    root: ./apps/web
+    env:
+      PORT: "3000"
+      API_URL: "http://localhost:8080"
+    env_path: ./.env
+    tasks:
+      dev:
+        cmd: bun run dev
+        depends_on:
+          - ui:build
+        watch: true
+        ignore:
+          - node_modules/**
+          - .next/**
+          - "*.db"
+        cache: false
+        restart:
+          strategy: Always
+          delay: 300
+      build:
+        cmd: bun run build
+        depends_on:
+          - ui:build
+        inputs:
+          - src/**
+          - public/**
+          - package.json
+          - next.config.ts
+        outputs:
+          - .next/**
+        watch: false
+        ignore:
+          - node_modules/**
+        cache: true
+        restart:
+          strategy: Never
+  - name: ui
+    root: ./packages/ui
+    env:
+      NODE_ENV: production
+    env_path: ./.env.production
+    tasks:
+      build:
+        cmd: bun run build
+        inputs:
+          - src/**
+          - package.json
+          - tsconfig.json
+        outputs:
+          - dist/**
+        watch: false
+        ignore:
+          - node_modules/**
+          - dist/**
+        cache: true
+        restart:
+          strategy: Never
+      dev:
+        cmd: bun run dev
+        watch: true
+        ignore:
+          - node_modules/**
+          - dist/**
+        cache: false
+        restart:
+          strategy: FileChange 
+          delay: 200
+  - name: api
+    root: ./apps/api
+    env:
+      RUST_LOG: debug
+    env_path: ./.env
+    tasks:
+      build:
+        cmd: cargo build --release
+        inputs:
+          - src/**
+          - Cargo.toml
+          - Cargo.lock
+        outputs:
+          - target/release/api
+        watch: false
+        ignore:
+          - target/debug/**
+        cache: true
+        restart:
+          strategy: Never
+      dev:
+        cmd: cargo watch -x run
+        watch: true
+        ignore:
+          - target/**
+        cache: false
+        restart:
+          strategy: Always
+          delay: 500
