@@ -4,7 +4,10 @@ use std::{
     path::PathBuf,
 };
 
-use crate::error::{ConfigError, FyrerError, FyrerResult};
+use crate::{
+    error::{ConfigError, FyrerError, FyrerResult},
+    tasks::{Task, TaskId, TaskMap},
+};
 
 pub type EnvMap = HashMap<String, String>;
 
@@ -200,6 +203,31 @@ impl FyrerConfig {
             }
         }
         Ok(())
+    }
+
+    pub fn create_task_map(&self) -> TaskMap {
+        let mut task_map = HashMap::new();
+        for project in &self.projects {
+            for (task_name, task_config) in &project.tasks {
+                let task = Task {
+                    project_name: project.name.clone(),
+                    project_root: project.root.clone(),
+                    env: project.env.clone(),
+                    task_name: task_name.clone(),
+                    cmd: task_config.cmd.clone(),
+                    depends_on: task_config.depends_on.clone(),
+                    persistent: task_config.persistent,
+                    inputs: task_config.inputs.clone(),
+                    outputs: task_config.outputs.clone(),
+                    ignore: task_config.ignore.clone(),
+                    cache: task_config.cache,
+                    restart: task_config.restart.clone(),
+                };
+                let task_id = TaskId::new(&project.name, task_name);
+                task_map.insert(task_id, task);
+            }
+        }
+        task_map
     }
 }
 fn default_vec_string() -> Vec<String> {

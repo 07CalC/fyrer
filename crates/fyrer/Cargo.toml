@@ -5,7 +5,9 @@ edition.workspace = true
 authors.workspace = true
 license.workspace = true
 repository.workspace = true
-description = "Graph-based monorepo execution engine"
-readme = "../../README.md"
 
 [dependencies]
+fyrer-core = {path = "../core/"}
+fyrer-graph = {path = "../graph/"}
+anyhow.workspace = true
+

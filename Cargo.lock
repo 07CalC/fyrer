@@ -17,6 +17,11 @@ checksum = "877a4ace8713b0bcf2a4e7eec82529c029f1d0619886d18145fea96c3ffe5c0f"
 [[package]]
 name = "fyrer"
 version = "0.3.0"
+dependencies = [
+ "anyhow",
+ "fyrer-core",
+ "fyrer-graph",
+]
 
 [[package]]
 name = "fyrer-cache"
@@ -61,6 +66,7 @@ name = "fyrer-graph"
 version = "0.3.0"
 dependencies = [
  "anyhow",
+ "fyrer-core",
  "fyrer-types",
 ]
 
