@@ -9,5 +9,7 @@ repository.workspace = true
 [dependencies]
 fyrer-core = {path = "../core/"}
 fyrer-graph = {path = "../graph/"}
+fyrer-error = { path = "../error/" }
 anyhow.workspace = true
+
 

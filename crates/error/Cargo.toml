@@ -1,5 +1,5 @@
 [package]
-name = "fyrer-graph"
+name = "fyrer-error"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
@@ -7,7 +7,7 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-anyhow.workspace = true
-fyrer-types = { path = "../types" }
-fyrer-core = { path = "../core" }
-fyrer-error = { path = "../error" }
+thiserror.workspace = true
+serde.workspace = true
+serde_yaml.workspace = true
+

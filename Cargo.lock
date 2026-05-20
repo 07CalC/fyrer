@@ -20,6 +20,7 @@ version = "0.3.0"
 dependencies = [
  "anyhow",
  "fyrer-core",
+ "fyrer-error",
  "fyrer-graph",
 ]
 
@@ -34,6 +35,7 @@ dependencies = [
 name = "fyrer-core"
 version = "0.3.0"
 dependencies = [
+ "fyrer-error",
  "serde",
  "serde_yaml",
  "thiserror",
@@ -54,6 +56,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "fyrer-error"
+version = "0.3.0"
+dependencies = [
+ "serde",
+ "serde_yaml",
+ "thiserror",
+]
+
+[[package]]
 name = "fyrer-executor"
 version = "0.3.0"
 dependencies = [
@@ -67,6 +78,7 @@ version = "0.3.0"
 dependencies = [
  "anyhow",
  "fyrer-core",
+ "fyrer-error",
  "fyrer-types",
 ]
 

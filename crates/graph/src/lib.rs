@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 
 use fyrer_core::tasks::{TaskId, TaskMap};
+use fyrer_error::{FyrerResult, graph::GraphError};
 
 #[derive(Debug)]
 pub struct TaskGraph {
@@ -47,15 +48,14 @@ impl TaskGraph {
         graph
     }
 
-    pub fn validate(&self) -> Result<(), String> {
+    pub fn validate(&self) -> FyrerResult<()> {
         let mut visited = HashMap::new();
         for node in self.nodes.values() {
             if !visited.contains_key(&node.id) {
                 if self.has_cycle(&node.id, &mut visited) {
-                    return Err(format!(
-                        "Cycle detected involving task '{}'",
-                        node.id.to_string()
-                    ));
+                    return Err(fyrer_error::FyrerError::Graph(GraphError::CycleDetected(
+                        node.id.to_string(),
+                    )));
                 }
             }
         }

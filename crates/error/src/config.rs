@@ -1,7 +1,6 @@
 use thiserror::Error;
 
 #[derive(Debug, Error)]
-
 pub enum ConfigError {
     #[error("failed to read file at '{path}': {source}")]
     ReadFile {
@@ -22,5 +21,3 @@ pub enum FyrerError {
     #[error("config error: {0}")]
     Config(#[from] ConfigError),
 }
-
-pub type FyrerResult<T> = Result<T, FyrerError>;

@@ -1,13 +1,11 @@
+use fyrer_error::{FyrerError, FyrerResult, config::ConfigError};
 use serde::{Deserialize, Serialize};
 use std::{
     collections::{HashMap, HashSet},
     path::PathBuf,
 };
 
-use crate::{
-    error::{ConfigError, FyrerError, FyrerResult},
-    tasks::{Task, TaskId, TaskMap},
-};
+use crate::tasks::{Task, TaskId, TaskMap};
 
 pub type EnvMap = HashMap<String, String>;
 
@@ -71,32 +69,26 @@ pub enum RestartStrategy {
 impl FyrerConfig {
     pub fn new_from_path(path: &str) -> FyrerResult<FyrerConfig> {
         let content = std::fs::read_to_string(path).map_err(|e| {
-            crate::error::FyrerError::Config(crate::error::ConfigError::ReadFile {
+            FyrerError::Config(ConfigError::ReadFile {
                 path: path.to_string(),
                 source: e,
             })
         })?;
 
-        let config: FyrerConfig = serde_yaml::from_str(content.as_str()).map_err(|e| {
-            crate::error::FyrerError::Config(crate::error::ConfigError::ParseYaml(e))
-        })?;
-        config.validate().map_err(|e| {
-            crate::error::FyrerError::Config(crate::error::ConfigError::InvalidConfig(
-                e.to_string(),
-            ))
-        })?;
+        let config: FyrerConfig = serde_yaml::from_str(content.as_str())
+            .map_err(|e| FyrerError::Config(ConfigError::ParseYaml(e)))?;
+        config
+            .validate()
+            .map_err(|e| FyrerError::Config(ConfigError::InvalidConfig(e.to_string())))?;
         Ok(config)
     }
 
     pub fn new_from_str(content: &str) -> FyrerResult<FyrerConfig> {
-        let config: FyrerConfig = serde_yaml::from_str(content).map_err(|e| {
-            crate::error::FyrerError::Config(crate::error::ConfigError::ParseYaml(e))
-        })?;
-        config.validate().map_err(|e| {
-            crate::error::FyrerError::Config(crate::error::ConfigError::InvalidConfig(
-                e.to_string(),
-            ))
-        })?;
+        let config: FyrerConfig = serde_yaml::from_str(content)
+            .map_err(|e| FyrerError::Config(ConfigError::ParseYaml(e)))?;
+        config
+            .validate()
+            .map_err(|e| FyrerError::Config(ConfigError::InvalidConfig(e.to_string())))?;
         Ok(config)
     }
 
@@ -109,12 +101,10 @@ impl FyrerConfig {
 
     fn validate_version(&self) -> FyrerResult<()> {
         if self.version != 1 {
-            return Err(FyrerError::Config(
-                crate::error::ConfigError::InvalidConfig(format!(
-                    "unsupported config version: {}",
-                    self.version
-                )),
-            ));
+            return Err(FyrerError::Config(ConfigError::InvalidConfig(format!(
+                "unsupported config version: {}",
+                self.version
+            ))));
         }
         Ok(())
     }
@@ -122,50 +112,46 @@ impl FyrerConfig {
     fn validate_projects(&self) -> FyrerResult<()> {
         let mut project_names = HashSet::new();
         for project in &self.projects {
-            let mut task_names = HashSet::new();
+            // let mut task_names: HashSet<String> = HashSet::new();
             if !project_names.insert(&project.name) {
-                return Err(FyrerError::Config(
-                    crate::error::ConfigError::InvalidConfig(format!(
-                        "duplicate project name: {}",
-                        project.name
-                    )),
-                ));
+                return Err(FyrerError::Config(ConfigError::InvalidConfig(format!(
+                    "duplicate project name: {}",
+                    project.name
+                ))));
             }
             if project.root.as_os_str().is_empty() {
-                return Err(FyrerError::Config(
-                    crate::error::ConfigError::InvalidConfig(format!(
-                        "project '{}' has empty root path",
-                        project.name
-                    )),
-                ));
+                return Err(FyrerError::Config(ConfigError::InvalidConfig(format!(
+                    "project '{}' has empty root path",
+                    project.name
+                ))));
             }
             if project.root.is_absolute() {
-                return Err(FyrerError::Config(
-                    crate::error::ConfigError::InvalidConfig(format!(
-                        "project '{}' has absolute root path '{}'",
-                        project.name,
-                        project.root.display()
-                    )),
-                ));
+                return Err(FyrerError::Config(ConfigError::InvalidConfig(format!(
+                    "project '{}' has absolute root path '{}'",
+                    project.name,
+                    project.root.display()
+                ))));
             }
             if project.env_path.is_empty() {
-                return Err(FyrerError::Config(
-                    crate::error::ConfigError::InvalidConfig(format!(
-                        "project '{}' has empty env_path",
-                        project.name
-                    )),
-                ));
+                return Err(FyrerError::Config(ConfigError::InvalidConfig(format!(
+                    "project '{}' has empty env_path",
+                    project.name
+                ))));
             }
-            for task_name in project.tasks.keys() {
-                if !task_names.insert(task_name) {
-                    return Err(FyrerError::Config(
-                        crate::error::ConfigError::InvalidConfig(format!(
-                            "duplicate task name '{}' in project '{}'",
-                            task_name, project.name
-                        )),
-                    ));
-                }
-            }
+
+            //TODO: currently we are making a map of tasks, so its not possible to detect duplicate
+            //task names at the yaml parsing stage. We need to add custom validation to check for
+            //duplicate task names and return an error if found. This is a known issue that we will
+            //address in a future update.
+            //
+            // for task_name in project.tasks.keys() {
+            //     if !task_names.insert(task_name) {
+            //         return Err(FyrerError::Config(ConfigError::InvalidConfig(format!(
+            //             "duplicate task name '{}' in project '{}'",
+            //             task_name, project.name
+            //         ))));
+            //     }
+            // }
         }
         Ok(())
     }
@@ -209,10 +195,13 @@ impl FyrerConfig {
         let mut task_map = HashMap::new();
         for project in &self.projects {
             for (task_name, task_config) in &project.tasks {
+                let mut env = self.env.clone();
+                env.extend(project.env.clone());
+                env.extend(task_config.env.clone());
                 let task = Task {
                     project_name: project.name.clone(),
                     project_root: project.root.clone(),
-                    env: project.env.clone(),
+                    env,
                     task_name: task_name.clone(),
                     cmd: task_config.cmd.clone(),
                     depends_on: task_config.depends_on.clone(),
@@ -259,7 +248,6 @@ fn default_restart() -> RestartConfig {
 
 mod tests {
     use super::*;
-
     #[test]
     fn test_valid_config() {
         let yaml = r#"
