@@ -36,4 +36,12 @@ impl TaskId {
     pub fn to_string(&self) -> String {
         format!("{}:{}", self.project_name, self.task_name)
     }
+    pub fn from_string(s: &str) -> Option<TaskId> {
+        let parts: Vec<&str> = s.split(':').collect();
+        if parts.len() == 2 {
+            Some(TaskId::new(parts[0], parts[1]))
+        } else {
+            None
+        }
+    }
 }

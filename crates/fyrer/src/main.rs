@@ -7,7 +7,7 @@ fn main() -> FyrerResult<()> {
     let config = FyrerConfig::new_from_str(&config_str)?;
     let task_map = config.create_task_map();
     drop(config);
-    let task_graph = fyrer_graph::TaskGraph::new(&task_map);
-    let validation = task_graph.validate()?;
+    let task_graph = fyrer_graph::TaskGraph::new(&task_map)?;
+    task_graph.validate()?;
     Ok(())
 }

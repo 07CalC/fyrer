@@ -16,7 +16,7 @@ pub struct TaskNode {
 }
 
 impl TaskGraph {
-    pub fn new(task_map: &TaskMap) -> TaskGraph {
+    pub fn new(task_map: &TaskMap) -> FyrerResult<Self> {
         let mut graph = TaskGraph {
             nodes: HashMap::new(),
         };
@@ -34,8 +34,27 @@ impl TaskGraph {
 
         for (id, task) in task_map {
             for dep in &task.depends_on {
-                let parts: Vec<&str> = dep.split(':').collect();
-                let dep_id = TaskId::new(parts[0], parts[1]);
+                let dep_id = if let Some((proj, task_name)) = dep.split_once(':') {
+                    TaskId::new(proj, task_name)
+                } else {
+                    TaskId::new(&task.project_name, dep)
+                };
+
+                if dep_id == *id {
+                    return Err(fyrer_error::FyrerError::Graph(
+                        GraphError::SelfDependency(id.to_string()),
+                    ));
+                }
+
+                if !graph.nodes.contains_key(&dep_id) {
+                    return Err(fyrer_error::FyrerError::Graph(
+                        GraphError::MissingDependency {
+                            dependent: id.to_string(),
+                            dependency: dep_id.to_string(),
+                        },
+                    ));
+                }
+
                 graph.nodes.get_mut(id).unwrap().deps.push(dep_id.clone());
                 graph
                     .nodes
@@ -45,7 +64,7 @@ impl TaskGraph {
                     .push(id.clone());
             }
         }
-        graph
+        Ok(graph)
     }
 
     pub fn validate(&self) -> FyrerResult<()> {
@@ -74,5 +93,40 @@ impl TaskGraph {
         }
         visited.insert(node_id.clone(), false);
         false
+    }
+
+    pub fn get_exec_flow(&self, task: String) -> FyrerResult<Vec<Vec<TaskId>>> {
+        let mut flow = Vec::new();
+        let task_id = TaskId::from_string(&task);
+
+        match task_id {
+            Some(id) => {
+                self.build_flow(&id, &mut flow)?;
+            }
+            None => {
+                return Err(fyrer_error::FyrerError::Graph(GraphError::InvalidTaskId {
+                    dependency: task.clone(),
+                    task: task.clone(),
+                }));
+            }
+        }
+
+        Ok(flow)
+    }
+    fn build_flow(&self, task_id: &TaskId, flow: &mut Vec<Vec<TaskId>>) -> FyrerResult<()> {
+        if let Some(node) = self.nodes.get(task_id) {
+            for dep in &node.deps {
+                self.build_flow(dep, flow)?;
+            }
+            flow.push(vec![task_id.clone()]);
+        } else {
+            return Err(fyrer_error::FyrerError::Graph(
+                GraphError::MissingDependency {
+                    dependent: task_id.to_string(),
+                    dependency: task_id.to_string(),
+                },
+            ));
+        }
+        Ok(())
     }
 }
