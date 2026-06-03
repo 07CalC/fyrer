@@ -1,0 +1,13 @@
+[package]
+name = "fyrer-core"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+thiserror.workspace = true
+serde.workspace = true
+serde_yaml.workspace = true
+fyrer-error = { path = "../error/" }
