@@ -19,16 +19,31 @@ pub async fn run_with_watch(service: Service, color: colored::Color, max_name_le
     let abs_service_dir =
         fs::canonicalize(&service.dir).unwrap_or_else(|_| Path::new(&service.dir).to_path_buf());
     let ignore = service.clone().ignore.unwrap_or_else(Vec::new);
+    let include = service.clone().include.unwrap_or_else(Vec::new);
 
-    let mut builder = GlobSetBuilder::new();
+    let mut ignore_builder = GlobSetBuilder::new();
     for pattern in &ignore {
         if let Ok(glob) = globset::Glob::new(pattern) {
-            builder.add(glob);
+            ignore_builder.add(glob);
         } else {
             eprintln!("Invalid ignore pattern: {}", pattern);
         }
     }
-    let glob_set = builder.build().unwrap();
+    let ignore_set = ignore_builder.build().unwrap();
+
+    let include_set = if include.is_empty() {
+        None
+    } else {
+        let mut include_builder = GlobSetBuilder::new();
+        for pattern in &include {
+            if let Ok(glob) = globset::Glob::new(pattern) {
+                include_builder.add(glob);
+            } else {
+                eprintln!("Invalid include pattern: {}", pattern);
+            }
+        }
+        Some(include_builder.build().unwrap())
+    };
 
     let _watcher = {
         let mut watcher = RecommendedWatcher::new(
@@ -76,7 +91,11 @@ pub async fn run_with_watch(service: Service, color: colored::Color, max_name_le
                     let filtered_paths: Vec<_> = paths.into_iter()
                         .filter(|path| {
                             let rel_path = path.strip_prefix(&abs_service_dir).unwrap_or(path);
-                            !glob_set.is_match(rel_path)
+                            if let Some(ref include_set) = include_set {
+                                include_set.is_match(rel_path) && !ignore_set.is_match(rel_path)
+                            } else {
+                                !ignore_set.is_match(rel_path)
+                            }
                         })
                         .collect();
 

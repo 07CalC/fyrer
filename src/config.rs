@@ -16,6 +16,7 @@ pub struct Service {
     pub env: Option<HashMap<String, String>>,
     pub watch: Option<bool>,
     pub ignore: Option<Vec<String>>,
+    pub include: Option<Vec<String>>,
     pub env_path: Option<String>,
     pub quiet: Option<bool>,
 }
