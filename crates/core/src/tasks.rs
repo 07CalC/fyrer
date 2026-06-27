@@ -31,6 +31,9 @@ impl Task {
             child.env(arg, value);
         }
         child.arg("-c").arg(cmd);
+        let stdout = std::process::Stdio::inherit();
+        let stderr = std::process::Stdio::inherit();
+        child.stdout(stdout).stderr(stderr);
         let status = child.status().expect("Failed to execute command");
         if !status.success() {
             eprintln!("Command failed with status: {}", status);

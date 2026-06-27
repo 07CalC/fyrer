@@ -121,8 +121,7 @@ impl TaskGraph {
             }
         }
 
-        let mut in_degree: HashMap<&TaskId, usize> =
-            relevant.iter().map(|id| (id, 0)).collect();
+        let mut in_degree: HashMap<&TaskId, usize> = relevant.iter().map(|id| (id, 0)).collect();
         for id in &relevant {
             let node = self.nodes.get(id).unwrap();
             for dep in &node.deps {

@@ -14,4 +14,3 @@ pub enum GraphError {
     #[error("invalid dependency format '{dependency}' in task '{task}', expected 'project:task'")]
     InvalidTaskId { dependency: String, task: String },
 }
-
