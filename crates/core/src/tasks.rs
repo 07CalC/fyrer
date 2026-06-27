@@ -1,4 +1,4 @@
-use std::{collections::HashMap, path::PathBuf};
+use std::{collections::HashMap, os::unix::process::CommandExt, path::PathBuf};
 
 use crate::config::{EnvMap, RestartConfig};
 
@@ -21,6 +21,25 @@ pub struct Task {
     pub ignore: Vec<String>,
     pub cache: bool,
     pub restart: RestartConfig,
+}
+
+impl Task {
+    pub fn execute(&self) {
+        let cmd = &self.cmd;
+        let mut child = std::process::Command::new("sh");
+        for (arg, value) in &self.env {
+            child.env(arg, value);
+        }
+        child.arg("-c").arg(cmd);
+        let status = child.status().expect("Failed to execute command");
+        if !status.success() {
+            eprintln!("Command failed with status: {}", status);
+        }
+    }
+
+    pub fn get_id(&self) -> TaskId {
+        TaskId::new(&self.project_name, &self.task_name)
+    }
 }
 
 pub type TaskMap = HashMap<TaskId, Task>;

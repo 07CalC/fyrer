@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet, VecDeque};
 
 use fyrer_core::tasks::{TaskId, TaskMap};
 use fyrer_error::{FyrerResult, graph::GraphError};
@@ -41,9 +41,9 @@ impl TaskGraph {
                 };
 
                 if dep_id == *id {
-                    return Err(fyrer_error::FyrerError::Graph(
-                        GraphError::SelfDependency(id.to_string()),
-                    ));
+                    return Err(fyrer_error::FyrerError::Graph(GraphError::SelfDependency(
+                        id.to_string(),
+                    )));
                 }
 
                 if !graph.nodes.contains_key(&dep_id) {
@@ -96,37 +96,89 @@ impl TaskGraph {
     }
 
     pub fn get_exec_flow(&self, task: String) -> FyrerResult<Vec<Vec<TaskId>>> {
-        let mut flow = Vec::new();
-        let task_id = TaskId::from_string(&task);
-
-        match task_id {
-            Some(id) => {
-                self.build_flow(&id, &mut flow)?;
-            }
-            None => {
-                return Err(fyrer_error::FyrerError::Graph(GraphError::InvalidTaskId {
-                    dependency: task.clone(),
-                    task: task.clone(),
-                }));
-            }
-        }
-
-        Ok(flow)
+        self.get_order(task)
     }
-    fn build_flow(&self, task_id: &TaskId, flow: &mut Vec<Vec<TaskId>>) -> FyrerResult<()> {
-        if let Some(node) = self.nodes.get(task_id) {
-            for dep in &node.deps {
-                self.build_flow(dep, flow)?;
+
+    pub fn get_order(&self, task: String) -> FyrerResult<Vec<Vec<TaskId>>> {
+        let task_id = TaskId::from_string(&task).ok_or_else(|| {
+            fyrer_error::FyrerError::Graph(GraphError::InvalidTaskId {
+                dependency: task.clone(),
+                task: task.clone(),
+            })
+        })?;
+
+        let mut relevant = HashSet::new();
+        let mut stack = vec![task_id];
+        while let Some(id) = stack.pop() {
+            if relevant.insert(id.clone()) {
+                let node = self.nodes.get(&id).ok_or_else(|| {
+                    fyrer_error::FyrerError::Graph(GraphError::MissingDependency {
+                        dependent: task.clone(),
+                        dependency: id.to_string(),
+                    })
+                })?;
+                stack.extend(node.deps.iter().cloned());
             }
-            flow.push(vec![task_id.clone()]);
-        } else {
-            return Err(fyrer_error::FyrerError::Graph(
-                GraphError::MissingDependency {
-                    dependent: task_id.to_string(),
-                    dependency: task_id.to_string(),
-                },
-            ));
         }
-        Ok(())
+
+        let mut in_degree: HashMap<&TaskId, usize> =
+            relevant.iter().map(|id| (id, 0)).collect();
+        for id in &relevant {
+            let node = self.nodes.get(id).unwrap();
+            for dep in &node.deps {
+                if relevant.contains(dep) {
+                    *in_degree.get_mut(id).unwrap() += 1;
+                }
+            }
+        }
+
+        let mut queue: VecDeque<&TaskId> = in_degree
+            .iter()
+            .filter(|&(_, deg)| *deg == 0)
+            .map(|(id, _)| *id)
+            .collect();
+
+        let mut levels = Vec::new();
+        let mut processed = HashSet::new();
+
+        while !queue.is_empty() {
+            levels.push(queue.iter().map(|id| (*id).clone()).collect());
+
+            let mut next_queue = VecDeque::new();
+            for id in &queue {
+                processed.insert((*id).clone());
+                let node = self.nodes.get(id).unwrap();
+                for dependent in &node.dependents {
+                    if !relevant.contains(dependent) {
+                        continue;
+                    }
+                    if let Some(deg) = in_degree.get_mut(dependent) {
+                        *deg -= 1;
+                        if *deg == 0 && !processed.contains(dependent) {
+                            next_queue.push_back(dependent);
+                        }
+                    }
+                }
+            }
+            queue = next_queue;
+        }
+
+        Ok(levels)
+    }
+
+    pub fn get_task(&self, task_name: &str) -> FyrerResult<&TaskNode> {
+        let task_id = TaskId::from_string(task_name).ok_or_else(|| {
+            fyrer_error::FyrerError::Graph(GraphError::InvalidTaskId {
+                dependency: task_name.to_string(),
+                task: task_name.to_string(),
+            })
+        })?;
+
+        self.nodes.get(&task_id).ok_or_else(|| {
+            fyrer_error::FyrerError::Graph(GraphError::MissingDependency {
+                dependent: task_name.to_string(),
+                dependency: task_name.to_string(),
+            })
+        })
     }
 }
