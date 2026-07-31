@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet, VecDeque};
 
-use fyrer_core::tasks::{TaskId, TaskMap};
-use fyrer_error::{FyrerResult, graph::GraphError};
+use crate::error::{FyrerResult, graph::GraphError};
+use crate::tasks::{TaskId, TaskMap};
 
 #[derive(Debug)]
 pub struct TaskGraph {
@@ -41,13 +41,13 @@ impl TaskGraph {
                 };
 
                 if dep_id == *id {
-                    return Err(fyrer_error::FyrerError::Graph(GraphError::SelfDependency(
+                    return Err(crate::error::FyrerError::Graph(GraphError::SelfDependency(
                         id.to_string(),
                     )));
                 }
 
                 if !graph.nodes.contains_key(&dep_id) {
-                    return Err(fyrer_error::FyrerError::Graph(
+                    return Err(crate::error::FyrerError::Graph(
                         GraphError::MissingDependency {
                             dependent: id.to_string(),
                             dependency: dep_id.to_string(),
@@ -72,7 +72,7 @@ impl TaskGraph {
         for node in self.nodes.values() {
             if !visited.contains_key(&node.id) {
                 if self.has_cycle(&node.id, &mut visited) {
-                    return Err(fyrer_error::FyrerError::Graph(GraphError::CycleDetected(
+                    return Err(crate::error::FyrerError::Graph(GraphError::CycleDetected(
                         node.id.to_string(),
                     )));
                 }
@@ -101,7 +101,7 @@ impl TaskGraph {
 
     pub fn get_order(&self, task: String) -> FyrerResult<Vec<Vec<TaskId>>> {
         let task_id = TaskId::from_string(&task).ok_or_else(|| {
-            fyrer_error::FyrerError::Graph(GraphError::InvalidTaskId {
+            crate::error::FyrerError::Graph(GraphError::InvalidTaskId {
                 dependency: task.clone(),
                 task: task.clone(),
             })
@@ -112,7 +112,7 @@ impl TaskGraph {
         while let Some(id) = stack.pop() {
             if relevant.insert(id.clone()) {
                 let node = self.nodes.get(&id).ok_or_else(|| {
-                    fyrer_error::FyrerError::Graph(GraphError::MissingDependency {
+                    crate::error::FyrerError::Graph(GraphError::MissingDependency {
                         dependent: task.clone(),
                         dependency: id.to_string(),
                     })
@@ -167,14 +167,14 @@ impl TaskGraph {
 
     pub fn get_task(&self, task_name: &str) -> FyrerResult<&TaskNode> {
         let task_id = TaskId::from_string(task_name).ok_or_else(|| {
-            fyrer_error::FyrerError::Graph(GraphError::InvalidTaskId {
+            crate::error::FyrerError::Graph(GraphError::InvalidTaskId {
                 dependency: task_name.to_string(),
                 task: task_name.to_string(),
             })
         })?;
 
         self.nodes.get(&task_id).ok_or_else(|| {
-            fyrer_error::FyrerError::Graph(GraphError::MissingDependency {
+            crate::error::FyrerError::Graph(GraphError::MissingDependency {
                 dependent: task_name.to_string(),
                 dependency: task_name.to_string(),
             })

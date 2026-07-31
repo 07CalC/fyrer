@@ -1,4 +1,4 @@
-use fyrer_error::{FyrerError, FyrerResult, config::ConfigError};
+use crate::error::{FyrerError, FyrerResult, config::ConfigError};
 use serde::{Deserialize, Serialize};
 use std::{
     collections::{HashMap, HashSet},

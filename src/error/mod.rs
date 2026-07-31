@@ -3,8 +3,8 @@ pub mod graph;
 
 use thiserror::Error;
 
-use crate::config::ConfigError;
-use crate::graph::GraphError;
+use crate::error::config::ConfigError;
+use crate::error::graph::GraphError;
 
 #[derive(Debug, Error)]
 pub enum FyrerError {

@@ -1,6 +1,6 @@
 use std::fs::read_to_string;
 
-use fyrer_error::{FyrerError, FyrerResult, config::ConfigError};
+use crate::error::{FyrerError, FyrerResult, config::ConfigError};
 
 pub fn dir_exists(path: &str) -> bool {
     std::path::Path::new(path).is_dir()

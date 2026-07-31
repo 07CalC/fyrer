@@ -1,8 +1,9 @@
 use std::fs;
 
-use fyrer_core::config::FyrerConfig;
-use fyrer_core::tasks::{TaskId, TaskMap};
-use fyrer_error::FyrerResult;
+use fyrer::config::FyrerConfig;
+use fyrer::error::FyrerResult;
+use fyrer::graph::TaskGraph;
+use fyrer::tasks::{TaskId, TaskMap};
 
 #[tokio::main]
 async fn main() -> FyrerResult<()> {
@@ -10,7 +11,7 @@ async fn main() -> FyrerResult<()> {
     let config = FyrerConfig::new_from_str(&config_str)?;
     let task_map = config.create_task_map();
     drop(config);
-    let task_graph = fyrer_graph::TaskGraph::new(&task_map)?;
+    let task_graph = TaskGraph::new(&task_map)?;
     task_graph.validate()?;
     let order = task_graph.get_order("project1:test".to_string())?;
     exec(order, &task_map).await;
