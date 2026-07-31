@@ -1,5 +1,4 @@
 use std::collections::HashMap;
-
 pub fn merge_env(
     global: &HashMap<String, String>,
     project: &HashMap<String, String>,

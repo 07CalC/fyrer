@@ -7,6 +7,7 @@ pub mod executor;
 pub mod fs;
 pub mod global;
 pub mod graph;
+pub mod logger;
 pub mod scheduler;
 pub mod tasks;
 pub mod types;

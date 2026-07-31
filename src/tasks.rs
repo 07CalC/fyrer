@@ -1,6 +1,6 @@
-use std::{collections::HashMap, fmt::Debug, path::PathBuf};
-
 use crate::config::{EnvMap, RestartConfig};
+use std::hash::{DefaultHasher, Hash, Hasher};
+use std::{collections::HashMap, fmt::Debug, path::PathBuf};
 
 #[derive(Clone, PartialEq, Hash, Eq)]
 pub struct TaskId {
@@ -65,6 +65,12 @@ impl TaskId {
         } else {
             None
         }
+    }
+    pub fn hash(&self) -> usize {
+        let mut hasher = DefaultHasher::new();
+        self.project_name.hash(&mut hasher);
+        self.task_name.hash(&mut hasher);
+        hasher.finish() as usize
     }
 }
 

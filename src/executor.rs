@@ -3,9 +3,9 @@ use std::process::Stdio;
 use crate::{
     error::FyrerResult,
     global,
+    logger::LogMessage,
     tasks::{Task, TaskId},
 };
-use anyhow::Error;
 use tokio::{io::AsyncBufReadExt, process::Command};
 
 pub async fn execute_tasks(task_name: &str) -> FyrerResult<()> {
@@ -52,16 +52,32 @@ pub async fn execute_task(task: Task) -> FyrerResult<()> {
 
     let task_id_out = TaskId::new(&task.project_name, &task.task_name);
     let task_id_err = task_id_out.clone();
+    let logger_out = global::get().log_sender.clone();
+    let logger_err = global::get().log_sender.clone();
     let stdout_reader = tokio::spawn(async move {
         let mut stdout_reader = tokio::io::BufReader::new(stdout).lines();
         while let Some(line) = stdout_reader.next_line().await.unwrap_or(None) {
-            println!("[{:?}]: {}", task_id_out, line);
+            logger_out
+                .send(LogMessage {
+                    task_id: task_id_out.clone(),
+                    message: line.clone(),
+                    log_type: crate::logger::LogType::Info,
+                })
+                .await
+                .expect("Failed to send log message");
         }
     });
     let stderr_reader = tokio::spawn(async move {
         let mut stderr_reader = tokio::io::BufReader::new(stderr).lines();
         while let Some(line) = stderr_reader.next_line().await.unwrap_or(None) {
-            eprintln!("[{:?}]: {}", task_id_err, line);
+            logger_err
+                .send(LogMessage {
+                    task_id: task_id_err.clone(),
+                    message: line.clone(),
+                    log_type: crate::logger::LogType::Error,
+                })
+                .await
+                .expect("Failed to send log message");
         }
     });
 
