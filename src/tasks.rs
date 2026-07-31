@@ -1,13 +1,13 @@
-use std::{collections::HashMap, os::unix::process::CommandExt, path::PathBuf};
+use std::{collections::HashMap, fmt::Debug, os::unix::process::CommandExt, path::PathBuf};
 
 use crate::config::{EnvMap, RestartConfig};
 
-#[derive(Debug, Clone, PartialEq, Hash, Eq)]
+#[derive(Clone, PartialEq, Hash, Eq)]
 pub struct TaskId {
     project_name: String,
     task_name: String,
 }
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct Task {
     pub project_name: String,
     pub project_root: PathBuf,
@@ -65,5 +65,27 @@ impl TaskId {
         } else {
             None
         }
+    }
+}
+
+impl Debug for TaskId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}:{}", self.project_name, self.task_name)
+    }
+}
+
+impl Debug for Task {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Task")
+            .field("\nproject_name", &self.project_name)
+            .field("\ntask_name", &self.task_name)
+            .field("\ncmd", &self.cmd)
+            .field("\ndepends_on", &self.depends_on)
+            .field("\npersistent", &self.persistent)
+            .field("\ninputs", &self.inputs)
+            .field("\noutputs", &self.outputs)
+            .field("\nignore", &self.ignore)
+            .field("\ncache", &self.cache)
+            .finish()
     }
 }

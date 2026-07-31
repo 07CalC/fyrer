@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet, VecDeque};
 
 use crate::error::{FyrerResult, graph::GraphError};
-use crate::tasks::{TaskId, TaskMap};
+use crate::tasks::{Task, TaskId, TaskMap};
 
 #[derive(Debug)]
 pub struct TaskGraph {
@@ -11,21 +11,23 @@ pub struct TaskGraph {
 #[derive(Debug)]
 pub struct TaskNode {
     pub id: TaskId,
+    pub task: Task,
     pub deps: Vec<TaskId>,
     pub dependents: Vec<TaskId>,
 }
 
 impl TaskGraph {
-    pub fn new(task_map: &TaskMap) -> FyrerResult<Self> {
+    pub fn new(task_map: TaskMap) -> FyrerResult<Self> {
         let mut graph = TaskGraph {
             nodes: HashMap::new(),
         };
 
-        for (id, _) in task_map {
+        for (id, _) in &task_map {
             graph.nodes.insert(
                 id.clone(),
                 TaskNode {
                     id: id.clone(),
+                    task: task_map.get(&id).unwrap().clone(),
                     deps: vec![],
                     dependents: Vec::new(),
                 },
@@ -40,7 +42,7 @@ impl TaskGraph {
                     TaskId::new(&task.project_name, dep)
                 };
 
-                if dep_id == *id {
+                if dep_id == id {
                     return Err(crate::error::FyrerError::Graph(GraphError::SelfDependency(
                         id.to_string(),
                     )));
@@ -55,7 +57,7 @@ impl TaskGraph {
                     ));
                 }
 
-                graph.nodes.get_mut(id).unwrap().deps.push(dep_id.clone());
+                graph.nodes.get_mut(&id).unwrap().deps.push(dep_id.clone());
                 graph
                     .nodes
                     .get_mut(&dep_id)
@@ -94,12 +96,7 @@ impl TaskGraph {
         visited.insert(node_id.clone(), false);
         false
     }
-
-    pub fn get_exec_flow(&self, task: String) -> FyrerResult<Vec<Vec<TaskId>>> {
-        self.get_order(task)
-    }
-
-    pub fn get_order(&self, task: String) -> FyrerResult<Vec<Vec<TaskId>>> {
+    pub fn get_order(&self, task: String) -> FyrerResult<Vec<Vec<Task>>> {
         let task_id = TaskId::from_string(&task).ok_or_else(|| {
             crate::error::FyrerError::Graph(GraphError::InvalidTaskId {
                 dependency: task.clone(),
@@ -141,7 +138,12 @@ impl TaskGraph {
         let mut processed = HashSet::new();
 
         while !queue.is_empty() {
-            levels.push(queue.iter().map(|id| (*id).clone()).collect());
+            levels.push(
+                queue
+                    .iter()
+                    .map(|id| self.nodes.get(id).unwrap().task.clone())
+                    .collect(),
+            );
 
             let mut next_queue = VecDeque::new();
             for id in &queue {
@@ -165,7 +167,7 @@ impl TaskGraph {
         Ok(levels)
     }
 
-    pub fn get_task(&self, task_name: &str) -> FyrerResult<&TaskNode> {
+    pub fn get_task(&self, task_name: &str) -> FyrerResult<&Task> {
         let task_id = TaskId::from_string(task_name).ok_or_else(|| {
             crate::error::FyrerError::Graph(GraphError::InvalidTaskId {
                 dependency: task_name.to_string(),
@@ -173,11 +175,14 @@ impl TaskGraph {
             })
         })?;
 
-        self.nodes.get(&task_id).ok_or_else(|| {
-            crate::error::FyrerError::Graph(GraphError::MissingDependency {
-                dependent: task_name.to_string(),
-                dependency: task_name.to_string(),
-            })
-        })
+        match self.nodes.get(&task_id) {
+            Some(node) => Ok(&node.task),
+            None => Err(crate::error::FyrerError::Graph(
+                GraphError::MissingDependency {
+                    dependent: task_name.to_string(),
+                    dependency: task_name.to_string(),
+                },
+            )),
+        }
     }
 }
