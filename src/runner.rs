@@ -7,6 +7,7 @@ use crate::{
     graph::TaskGraph,
     logger::Logger,
     tasks::{TaskId, TaskMap},
+    watcher,
 };
 
 pub struct Runner {
@@ -94,14 +95,24 @@ impl Runner {
         Ok(())
     }
 
-    pub async fn run(self, tasks: &[TaskId]) -> FyrerResult<()> {
+    pub async fn run(&self, tasks: &[TaskId]) -> FyrerResult<()> {
         let mut logger = Logger::new(self.task_map.len());
         let log_sender = logger.sender();
         tokio::spawn(async move {
             logger.start().await;
         });
-        global::init(self.task_graph, self.task_map, self.config.env, log_sender)?;
-        executor::execute_tasks(tasks).await
+        global::init(
+            self.task_graph.clone(),
+            self.task_map.clone(),
+            self.config.env.clone(),
+            log_sender,
+        )?;
+        tokio::spawn(global::await_shutdown_signal());
+        let running = executor::execute_tasks(tasks).await?;
+        tokio::select! {
+            result = watcher::watch_tasks(running) => result,
+            _ = global::shutdown_notified() => Ok(()),
+        }
     }
 }
 

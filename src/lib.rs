@@ -7,3 +7,4 @@ pub mod graph;
 pub mod logger;
 pub mod runner;
 pub mod tasks;
+pub mod watcher;

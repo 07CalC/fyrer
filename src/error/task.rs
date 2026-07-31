@@ -34,4 +34,6 @@ pub enum TaskError {
         #[source]
         source: tokio::task::JoinError,
     },
+    #[error("task '{0}' was cancelled by shutdown")]
+    Cancelled(String),
 }

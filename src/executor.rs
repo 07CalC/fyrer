@@ -1,6 +1,8 @@
 use std::process::Stdio;
+use std::time::Duration;
 
 use crate::{
+    config::RestartStrategy,
     error::{FyrerError, FyrerResult, logger::LoggerError, task::TaskError},
     global,
     logger::{LogMessage, LogType},
@@ -8,9 +10,47 @@ use crate::{
 };
 use tokio::{io::AsyncBufReadExt, process::Command};
 
-pub async fn execute_tasks(tasks: &[TaskId]) -> FyrerResult<()> {
+pub struct TaskProcess {
+    pub task_id: TaskId,
+    child: tokio::process::Child,
+    stdout_reader: Option<tokio::task::JoinHandle<FyrerResult<()>>>,
+    stderr_reader: Option<tokio::task::JoinHandle<FyrerResult<()>>>,
+}
+
+impl TaskProcess {
+    pub async fn stop(&mut self) {
+        self.signal_group(libc::SIGTERM);
+        if tokio::time::timeout(Duration::from_secs(2), self.child.wait())
+            .await
+            .is_err()
+        {
+            self.signal_group(libc::SIGKILL);
+            let _ = self.child.wait().await;
+        }
+        global::unregister_pid(&self.task_id);
+    }
+
+    #[cfg(unix)]
+    fn signal_group(&self, signal: libc::c_int) {
+        if let Some(pid) = self.child.id() {
+            unsafe {
+                libc::kill(-(pid as libc::pid_t), signal);
+            }
+        }
+    }
+}
+
+impl Drop for TaskProcess {
+    fn drop(&mut self) {
+        self.signal_group(libc::SIGKILL);
+        global::unregister_pid(&self.task_id);
+    }
+}
+
+pub async fn execute_tasks(tasks: &[TaskId]) -> FyrerResult<Vec<(Task, TaskProcess)>> {
     let state = global::get();
     let order = state.task_graph.get_orders(tasks)?;
+    let mut running = vec![];
     for batch in order {
         let mut handles = vec![];
         for task_id in batch {
@@ -19,19 +59,56 @@ pub async fn execute_tasks(tasks: &[TaskId]) -> FyrerResult<()> {
                 .get(&task_id)
                 .cloned()
                 .ok_or_else(|| FyrerError::Task(TaskError::NotFound(task_id.to_string())))?;
-            handles.push((
-                task_id.to_string(),
-                tokio::spawn(async move { execute_task(task).await }),
-            ));
+            if task.restart.strategy == RestartStrategy::FileChange {
+                handles.push((
+                    task_id.to_string(),
+                    tokio::spawn(async move { start_task(task).await.map(Some) }),
+                ));
+            } else {
+                handles.push((
+                    task_id.to_string(),
+                    tokio::spawn(async move { execute_task(task).await.map(|_| None) }),
+                ));
+            }
         }
         for (task_name, handle) in handles {
-            join_reader(handle, &task_name).await?;
+            if let Some(process) = join(handle, &task_name).await? {
+                let id = process.task_id.clone();
+                let task = state
+                    .task_map
+                    .get(&id)
+                    .cloned()
+                    .ok_or_else(|| FyrerError::Task(TaskError::NotFound(id.to_string())))?;
+                running.push((task, process));
+            }
         }
     }
-    Ok(())
+    Ok(running)
 }
 
 pub async fn execute_task(task: Task) -> FyrerResult<()> {
+    let mut process = start_task(task).await?;
+    let task_id = process.task_id.clone();
+    let status = process.child.wait().await.map_err(|e| {
+        FyrerError::Task(TaskError::Wait {
+            task: task_id.to_string(),
+            source: e,
+        })
+    })?;
+    join(process.stdout_reader.take().unwrap(), &task_id.to_string()).await?;
+    join(process.stderr_reader.take().unwrap(), &task_id.to_string()).await?;
+
+    if !status.success() {
+        return Err(FyrerError::Task(TaskError::Failed {
+            task: task_id.to_string(),
+            code: status.code().unwrap_or(-1),
+        }));
+    }
+
+    Ok(())
+}
+
+pub async fn start_task(task: Task) -> FyrerResult<TaskProcess> {
     let task_id = TaskId::new(&task.project_name, &task.task_name);
     let mut cmd = Command::new("sh");
     cmd.arg("-c").arg(&task.cmd);
@@ -39,6 +116,8 @@ pub async fn execute_task(task: Task) -> FyrerResult<()> {
     cmd.envs(&task.env);
     cmd.stdout(Stdio::piped());
     cmd.stderr(Stdio::piped());
+    #[cfg(unix)]
+    cmd.process_group(0);
 
     let mut child = cmd.spawn().map_err(|e| {
         FyrerError::Task(TaskError::Spawn {
@@ -46,6 +125,19 @@ pub async fn execute_task(task: Task) -> FyrerResult<()> {
             source: e,
         })
     })?;
+    if global::is_shutting_down() {
+        if let Some(pid) = child.id() {
+            #[cfg(unix)]
+            unsafe {
+                libc::kill(-(pid as libc::pid_t), libc::SIGKILL);
+            }
+        }
+        let _ = child.wait().await;
+        return Err(FyrerError::Task(TaskError::Cancelled(task_id.to_string())));
+    }
+    if let Some(pid) = child.id() {
+        global::register_pid(task_id.clone(), pid);
+    }
     let stdout = child.stdout.take().ok_or_else(|| {
         FyrerError::Task(TaskError::MissingStdout(task_id.to_string()))
     })?;
@@ -66,29 +158,18 @@ pub async fn execute_task(task: Task) -> FyrerResult<()> {
         LogType::Error,
     ));
 
-    let status = child.wait().await.map_err(|e| {
-        FyrerError::Task(TaskError::Wait {
-            task: task_id.to_string(),
-            source: e,
-        })
-    })?;
-    join_reader(stdout_reader, &task_id.to_string()).await?;
-    join_reader(stderr_reader, &task_id.to_string()).await?;
-
-    if !status.success() {
-        return Err(FyrerError::Task(TaskError::Failed {
-            task: task_id.to_string(),
-            code: status.code().unwrap_or(-1),
-        }));
-    }
-
-    Ok(())
+    Ok(TaskProcess {
+        task_id,
+        child,
+        stdout_reader: Some(stdout_reader),
+        stderr_reader: Some(stderr_reader),
+    })
 }
 
-async fn join_reader(
-    handle: tokio::task::JoinHandle<FyrerResult<()>>,
+async fn join<T>(
+    handle: tokio::task::JoinHandle<FyrerResult<T>>,
     task: &str,
-) -> FyrerResult<()> {
+) -> FyrerResult<T> {
     handle
         .await
         .map_err(|e| FyrerError::Task(TaskError::Join {

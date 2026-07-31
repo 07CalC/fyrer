@@ -4,6 +4,7 @@ pub mod io;
 pub mod logger;
 pub mod state;
 pub mod task;
+pub mod watch;
 
 use thiserror::Error;
 
@@ -13,6 +14,7 @@ use crate::error::io::IoError;
 use crate::error::logger::LoggerError;
 use crate::error::state::StateError;
 use crate::error::task::TaskError;
+use crate::error::watch::WatcherError;
 
 #[derive(Debug, Error)]
 pub enum FyrerError {
@@ -28,6 +30,8 @@ pub enum FyrerError {
     State(#[from] StateError),
     #[error("logger error: {0}")]
     Logger(#[from] LoggerError),
+    #[error("watcher error: {0}")]
+    Watch(#[from] WatcherError),
 }
 
 pub type FyrerResult<T> = Result<T, FyrerError>;

@@ -24,6 +24,7 @@ pub struct ProjectConfig {
     pub root: PathBuf,
     #[serde(default = "default_env_map")]
     pub env: EnvMap,
+    #[serde(default = "default_env_path")]
     pub env_path: String,
     #[serde(default = "default_tasks")]
     pub tasks: HashMap<String, TaskConfig>,
@@ -198,6 +199,10 @@ fn default_vec_string() -> Vec<String> {
 
 fn default_env_map() -> EnvMap {
     HashMap::new()
+}
+
+fn default_env_path() -> String {
+    ".env".to_string()
 }
 
 fn default_tasks() -> HashMap<String, TaskConfig> {

@@ -5,12 +5,12 @@ use crate::{
     tasks::{Task, TaskId, TaskMap},
 };
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct TaskGraph {
     pub nodes: HashMap<TaskId, TaskNode>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct TaskNode {
     pub id: TaskId,
     pub task: Task,

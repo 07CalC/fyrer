@@ -1,5 +1,6 @@
 use clap::{Parser, Subcommand};
 use fyrer::error::FyrerResult;
+use fyrer::global;
 use fyrer::runner::Runner;
 
 #[derive(Parser)]
@@ -26,11 +27,20 @@ enum Command {
     List,
 }
 
-#[tokio::main]
-async fn main() {
-    if let Err(e) = run().await {
-        eprintln!("error: {e}");
-        std::process::exit(1);
+fn main() {
+    let result = tokio::runtime::Runtime::new()
+        .expect("failed to start tokio runtime")
+        .block_on(run());
+    match result {
+        Ok(()) => {
+            if global::is_shutting_down() {
+                std::process::exit(global::shutdown_code());
+            }
+        }
+        Err(e) => {
+            eprintln!("error: {e}");
+            std::process::exit(1);
+        }
     }
 }
 
