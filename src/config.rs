@@ -77,18 +77,14 @@ impl FyrerConfig {
 
         let config: FyrerConfig = serde_yaml::from_str(content.as_str())
             .map_err(|e| FyrerError::Config(ConfigError::ParseYaml(e)))?;
-        config
-            .validate()
-            .map_err(|e| FyrerError::Config(ConfigError::InvalidConfig(e.to_string())))?;
+        config.validate()?;
         Ok(config)
     }
 
     pub fn new_from_str(content: &str) -> FyrerResult<FyrerConfig> {
         let config: FyrerConfig = serde_yaml::from_str(content)
             .map_err(|e| FyrerError::Config(ConfigError::ParseYaml(e)))?;
-        config
-            .validate()
-            .map_err(|e| FyrerError::Config(ConfigError::InvalidConfig(e.to_string())))?;
+        config.validate()?;
         Ok(config)
     }
 
@@ -101,10 +97,9 @@ impl FyrerConfig {
 
     fn validate_version(&self) -> FyrerResult<()> {
         if self.version != 1 {
-            return Err(FyrerError::Config(ConfigError::InvalidConfig(format!(
-                "unsupported config version: {}",
-                self.version
-            ))));
+            return Err(FyrerError::Config(ConfigError::UnsupportedVersion {
+                version: self.version,
+            }));
         }
         Ok(())
     }
@@ -114,29 +109,25 @@ impl FyrerConfig {
         for project in &self.projects {
             // let mut task_names: HashSet<String> = HashSet::new();
             if !project_names.insert(&project.name) {
-                return Err(FyrerError::Config(ConfigError::InvalidConfig(format!(
-                    "duplicate project name: {}",
-                    project.name
-                ))));
+                return Err(FyrerError::Config(ConfigError::DuplicateProject {
+                    name: project.name.clone(),
+                }));
             }
             if project.root.as_os_str().is_empty() {
-                return Err(FyrerError::Config(ConfigError::InvalidConfig(format!(
-                    "project '{}' has empty root path",
-                    project.name
-                ))));
+                return Err(FyrerError::Config(ConfigError::EmptyProjectRoot {
+                    project: project.name.clone(),
+                }));
             }
             if project.root.is_absolute() {
-                return Err(FyrerError::Config(ConfigError::InvalidConfig(format!(
-                    "project '{}' has absolute root path '{}'",
-                    project.name,
-                    project.root.display()
-                ))));
+                return Err(FyrerError::Config(ConfigError::AbsoluteProjectRoot {
+                    project: project.name.clone(),
+                    path: project.root.display().to_string(),
+                }));
             }
             if project.env_path.is_empty() {
-                return Err(FyrerError::Config(ConfigError::InvalidConfig(format!(
-                    "project '{}' has empty env_path",
-                    project.name
-                ))));
+                return Err(FyrerError::Config(ConfigError::EmptyEnvPath {
+                    project: project.name.clone(),
+                }));
             }
 
             //TODO: currently we are making a map of tasks, so its not possible to detect duplicate
@@ -160,31 +151,31 @@ impl FyrerConfig {
         for project in &self.projects {
             for (task_name, task) in &project.tasks {
                 if task.cmd.is_empty() {
-                    return Err(FyrerError::Config(ConfigError::InvalidConfig(format!(
-                        "task '{}' in project '{}' has empty cmd",
-                        task_name, project.name
-                    ))));
+                    return Err(FyrerError::Config(ConfigError::EmptyCommand {
+                        project: project.name.clone(),
+                        task: task_name.clone(),
+                    }));
                 }
 
                 if task.cache && task.outputs.is_empty() {
-                    return Err(FyrerError::Config(ConfigError::InvalidConfig(format!(
-                        "task '{}' in project '{}' has cache enabled but no outputs defined",
-                        task_name, project.name
-                    ))));
+                    return Err(FyrerError::Config(ConfigError::CacheWithoutOutputs {
+                        project: project.name.clone(),
+                        task: task_name.clone(),
+                    }));
                 }
 
                 if task.cache && task.persistent {
-                    return Err(FyrerError::Config(ConfigError::InvalidConfig(format!(
-                        "task '{}' in project '{}' cannot be both cacheable and persistent",
-                        task_name, project.name
-                    ))));
+                    return Err(FyrerError::Config(ConfigError::CacheAndPersistent {
+                        project: project.name.clone(),
+                        task: task_name.clone(),
+                    }));
                 }
 
                 if task.restart.strategy == RestartStrategy::FileChange && task.inputs.is_empty() {
-                    return Err(FyrerError::Config(ConfigError::InvalidConfig(format!(
-                        "task '{}' in project '{}' has file change restart strategy but no inputs defined",
-                        task_name, project.name
-                    ))));
+                    return Err(FyrerError::Config(ConfigError::FileChangeWithoutInputs {
+                        project: project.name.clone(),
+                        task: task_name.clone(),
+                    }));
                 }
             }
         }
@@ -361,10 +352,10 @@ projects:
 "#;
         let err = FyrerConfig::new_from_str(yaml).err().unwrap();
         match err {
-            FyrerError::Config(ConfigError::InvalidConfig(msg)) => {
-                assert!(msg.contains("duplicate project name: project1"));
+            FyrerError::Config(ConfigError::DuplicateProject { name }) => {
+                assert_eq!(name, "project1");
             }
-            _ => panic!("Expected InvalidConfig error"),
+            _ => panic!("Expected DuplicateProject error"),
         }
     }
 
@@ -418,10 +409,10 @@ projects: []
 "#;
         let err = FyrerConfig::new_from_str(yaml).err().unwrap();
         match err {
-            FyrerError::Config(ConfigError::InvalidConfig(msg)) => {
-                assert!(msg.contains("unsupported config version: 2"));
+            FyrerError::Config(ConfigError::UnsupportedVersion { version }) => {
+                assert_eq!(version, 2);
             }
-            _ => panic!("Expected InvalidConfig error"),
+            _ => panic!("Expected UnsupportedVersion error"),
         }
     }
 
@@ -449,10 +440,11 @@ projects:
 "#;
         let err = FyrerConfig::new_from_str(yaml).err().unwrap();
         match err {
-            FyrerError::Config(ConfigError::InvalidConfig(msg)) => {
-                assert!(msg.contains("task 'build' in project 'project1' has empty cmd"));
+            FyrerError::Config(ConfigError::EmptyCommand { project, task }) => {
+                assert_eq!(project, "project1");
+                assert_eq!(task, "build");
             }
-            _ => panic!("Expected InvalidConfig error"),
+            _ => panic!("Expected EmptyCommand error"),
         }
     }
 
@@ -480,13 +472,11 @@ projects:
 "#;
         let err = FyrerConfig::new_from_str(yaml).err().unwrap();
         match err {
-            FyrerError::Config(ConfigError::InvalidConfig(msg)) => {
-                dbg!(&msg);
-                assert!(msg.contains(
-                    "task 'build' in project 'project1' has cache enabled but no outputs defined"
-                ));
+            FyrerError::Config(ConfigError::CacheWithoutOutputs { project, task }) => {
+                assert_eq!(project, "project1");
+                assert_eq!(task, "build");
             }
-            _ => panic!("Expected InvalidConfig error"),
+            _ => panic!("Expected CacheWithoutOutputs error"),
         }
     }
 
@@ -514,12 +504,11 @@ projects:
 "#;
         let err = FyrerConfig::new_from_str(yaml).err().unwrap();
         match err {
-            FyrerError::Config(ConfigError::InvalidConfig(msg)) => {
-                assert!(msg.contains(
-                    "task 'build' in project 'project1' cannot be both cacheable and persistent"
-                ));
+            FyrerError::Config(ConfigError::CacheAndPersistent { project, task }) => {
+                assert_eq!(project, "project1");
+                assert_eq!(task, "build");
             }
-            _ => panic!("Expected InvalidConfig error"),
+            _ => panic!("Expected CacheAndPersistent error"),
         }
     }
 }

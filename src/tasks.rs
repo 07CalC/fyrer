@@ -1,4 +1,5 @@
 use crate::config::{EnvMap, RestartConfig};
+use crate::error::{FyrerError, FyrerResult, task::TaskError};
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::{collections::HashMap, fmt::Debug, path::PathBuf};
 
@@ -24,7 +25,7 @@ pub struct Task {
 }
 
 impl Task {
-    pub fn execute(&self) {
+    pub fn execute(&self) -> FyrerResult<()> {
         let cmd = &self.cmd;
         let mut child = std::process::Command::new("sh");
         for (arg, value) in &self.env {
@@ -34,10 +35,19 @@ impl Task {
         let stdout = std::process::Stdio::inherit();
         let stderr = std::process::Stdio::inherit();
         child.stdout(stdout).stderr(stderr);
-        let status = child.status().expect("Failed to execute command");
+        let status = child.status().map_err(|e| {
+            FyrerError::Task(TaskError::Spawn {
+                task: self.get_id().to_string(),
+                source: e,
+            })
+        })?;
         if !status.success() {
-            eprintln!("Command failed with status: {}", status);
+            return Err(FyrerError::Task(TaskError::Failed {
+                task: self.get_id().to_string(),
+                code: status.code().unwrap_or(-1),
+            }));
         }
+        Ok(())
     }
 
     pub fn get_id(&self) -> TaskId {

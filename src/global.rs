@@ -1,12 +1,11 @@
-use std::{collections::HashMap, hash::Hash, sync::OnceLock};
-
-use tokio::sync::mpsc::Sender;
-
 use crate::{
+    error::{FyrerError, FyrerResult, state::StateError},
     graph::TaskGraph,
-    logger::{LogMessage, Logger},
+    logger::LogMessage,
     tasks::TaskMap,
 };
+use std::{collections::HashMap, sync::OnceLock};
+use tokio::sync::mpsc::Sender;
 
 #[derive(Debug)]
 pub struct GlobalState {
@@ -23,7 +22,7 @@ pub fn init(
     task_map: TaskMap,
     global_env: HashMap<String, String>,
     log_sender: Sender<LogMessage>,
-) {
+) -> FyrerResult<()> {
     GLOBAL_STATE
         .set(GlobalState {
             task_graph,
@@ -31,7 +30,7 @@ pub fn init(
             global_env,
             log_sender,
         })
-        .expect("Global state has already been initialized");
+        .map_err(|_| FyrerError::State(StateError::AlreadyInitialized))
 }
 
 pub fn get() -> &'static GlobalState {

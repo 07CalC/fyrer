@@ -109,10 +109,7 @@ impl TaskGraph {
         while let Some(id) = stack.pop() {
             if relevant.insert(id.clone()) {
                 let node = self.nodes.get(&id).ok_or_else(|| {
-                    crate::error::FyrerError::Graph(GraphError::MissingDependency {
-                        dependent: task.to_string(),
-                        dependency: id.to_string(),
-                    })
+                    crate::error::FyrerError::Graph(GraphError::TaskNotFound(id.to_string()))
                 })?;
                 stack.extend(node.deps.iter().cloned());
             }
@@ -177,12 +174,9 @@ impl TaskGraph {
 
         match self.nodes.get(&task_id) {
             Some(node) => Ok(&node.task),
-            None => Err(crate::error::FyrerError::Graph(
-                GraphError::MissingDependency {
-                    dependent: task_name.to_string(),
-                    dependency: task_name.to_string(),
-                },
-            )),
+            None => Err(crate::error::FyrerError::Graph(GraphError::TaskNotFound(
+                task_name.to_string(),
+            ))),
         }
     }
 }

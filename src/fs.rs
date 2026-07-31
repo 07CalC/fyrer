@@ -1,6 +1,6 @@
 use std::fs::read_to_string;
 
-use crate::error::{FyrerError, FyrerResult, config::ConfigError};
+use crate::error::{FyrerResult, io::IoError};
 
 pub fn dir_exists(path: &str) -> bool {
     std::path::Path::new(path).is_dir()
@@ -11,11 +11,10 @@ pub fn file_exists(path: &str) -> bool {
 }
 
 pub fn read_file(path: &str) -> FyrerResult<String> {
-    let content = read_to_string(path).map_err(|e| {
-        FyrerError::Config(ConfigError::ReadFile {
+    let content = read_to_string(path)
+        .map_err(|e| IoError::ReadFile {
             path: path.to_string(),
             source: e,
-        })
-    })?;
+        })?;
     Ok(content)
 }

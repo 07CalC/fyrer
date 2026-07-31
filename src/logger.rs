@@ -14,11 +14,13 @@ static COLORS: [&str; 10] = [
     "\x1b[38;5;214m", // Light Orange
 ];
 
+#[derive(Debug)]
 pub struct LogMessage {
     pub task_id: TaskId,
     pub message: String,
     pub log_type: LogType,
 }
+#[derive(Debug)]
 pub enum LogType {
     Info,
     Error,
