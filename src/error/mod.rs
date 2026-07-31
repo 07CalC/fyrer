@@ -1,4 +1,5 @@
 pub mod config;
+pub mod env;
 pub mod graph;
 pub mod io;
 pub mod logger;
@@ -32,6 +33,8 @@ pub enum FyrerError {
     Logger(#[from] LoggerError),
     #[error("watcher error: {0}")]
     Watch(#[from] WatcherError),
+    #[error("env error: {0}")]
+    Env(#[from] env::EnvError),
 }
 
 pub type FyrerResult<T> = Result<T, FyrerError>;
@@ -49,7 +52,10 @@ mod tests {
         let err = FyrerError::Config(ConfigError::DuplicateProject {
             name: "web".to_string(),
         });
-        assert_eq!(err.to_string(), "config error: duplicate project name 'web'");
+        assert_eq!(
+            err.to_string(),
+            "config error: duplicate project name 'web'"
+        );
 
         let err = FyrerError::Graph(GraphError::TaskNotFound("api:build".to_string()));
         assert_eq!(
@@ -64,7 +70,10 @@ mod tests {
         );
 
         let err = FyrerError::State(StateError::AlreadyInitialized);
-        assert_eq!(err.to_string(), "state error: global state has already been initialized");
+        assert_eq!(
+            err.to_string(),
+            "state error: global state has already been initialized"
+        );
     }
 
     #[test]
