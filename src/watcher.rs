@@ -27,12 +27,12 @@ pub async fn watch_tasks(running: Vec<(Task, TaskProcess)>) -> FyrerResult<()> {
         return Ok(());
     }
     for (task, process) in running {
-        setup_watch(task, process)?;
+        setup_watch(task, process).await?;
     }
     std::future::pending().await
 }
 
-fn setup_watch(task: Task, process: TaskProcess) -> FyrerResult<()> {
+async fn setup_watch(task: Task, process: TaskProcess) -> FyrerResult<()> {
     if task.restart.strategy != RestartStrategy::FileChange {
         return Ok(());
     }
@@ -61,7 +61,15 @@ fn setup_watch(task: Task, process: TaskProcess) -> FyrerResult<()> {
         .map_err(|e| FyrerError::Watch(WatcherError::Init(e)))?;
 
     let task_id = TaskId::new(&task.project_name, &task.task_name);
-    println!("watching {task_id} for changes");
+    global::get()
+        .log_sender
+        .send(LogMessage {
+            task_id: task_id.clone(),
+            message: "watching for changes".to_string(),
+            log_type: LogType::System,
+        })
+        .await
+        .map_err(|e| FyrerError::Watch(WatcherError::LogSend(e)))?;
     tokio::spawn(watch_loop(task, matcher, watcher, receiver, process));
     Ok(())
 }
@@ -184,7 +192,6 @@ mod tests {
             task_name: "dev".to_string(),
             cmd: "echo hi".to_string(),
             depends_on: vec![],
-            persistent: true,
             inputs: inputs.iter().map(|s| s.to_string()).collect(),
             outputs: vec![],
             ignore: ignore.iter().map(|s| s.to_string()).collect(),

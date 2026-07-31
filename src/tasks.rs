@@ -18,7 +18,6 @@ pub struct Task {
     pub task_name: String,
     pub cmd: String,
     pub depends_on: Vec<String>,
-    pub persistent: bool,
     pub inputs: Vec<String>,
     pub outputs: Vec<String>,
     pub ignore: Vec<String>,

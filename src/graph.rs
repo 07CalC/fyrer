@@ -177,7 +177,6 @@ mod tests {
             task_name: name.to_string(),
             cmd: "echo hi".into(),
             depends_on: deps,
-            persistent: false,
             inputs: vec![],
             outputs: vec![],
             ignore: vec![],

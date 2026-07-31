@@ -37,8 +37,6 @@ pub struct TaskConfig {
     pub cmd: String,
     #[serde(default = "default_vec_string")]
     pub depends_on: Vec<String>,
-    #[serde(default = "default_bool")]
-    pub persistent: bool,
     #[serde(default = "default_vec_string")]
     pub inputs: Vec<String>,
     #[serde(default = "default_vec_string")]
@@ -149,13 +147,6 @@ impl FyrerConfig {
                     }));
                 }
 
-                if task.cache && task.persistent {
-                    return Err(FyrerError::Config(ConfigError::CacheAndPersistent {
-                        project: project.name.clone(),
-                        task: task_name.clone(),
-                    }));
-                }
-
                 if task.restart.strategy == RestartStrategy::FileChange && task.inputs.is_empty() {
                     return Err(FyrerError::Config(ConfigError::FileChangeWithoutInputs {
                         project: project.name.clone(),
@@ -179,7 +170,6 @@ impl FyrerConfig {
                     task_name: task_name.clone(),
                     cmd: task_config.cmd.clone(),
                     depends_on: task_config.depends_on.clone(),
-                    persistent: task_config.persistent,
                     inputs: task_config.inputs.clone(),
                     outputs: task_config.outputs.clone(),
                     ignore: task_config.ignore.clone(),
@@ -249,7 +239,6 @@ projects:
       build:
         cmd: echo Building project1
         depends_on: []
-        persistent: false
         inputs: ["src/**/*"]
         outputs: ["dist/**/*"]
         ignore: []
@@ -260,7 +249,6 @@ projects:
       test:
         cmd: "echo Testing project1"
         depends_on: ["build"]
-        persistent: false
         inputs: ["tests/**/*"]
         outputs: []
         ignore: []
@@ -277,7 +265,6 @@ projects:
       deploy:
         cmd: "echo Deploying project2"
         depends_on: []
-        persistent: true
         inputs: []
         outputs: []
         ignore: []
@@ -301,7 +288,6 @@ projects:
         let build_task = project1.tasks.get("build").unwrap();
         assert_eq!(build_task.cmd, "echo Building project1");
         assert_eq!(build_task.depends_on, Vec::<String>::new());
-        assert!(!build_task.persistent);
         assert_eq!(build_task.inputs, vec!["src/**/*"]);
         assert_eq!(build_task.outputs, vec!["dist/**/*"]);
         assert_eq!(build_task.ignore, Vec::<String>::new());
@@ -312,7 +298,6 @@ projects:
         let test_task = project1.tasks.get("test").unwrap();
         assert_eq!(test_task.cmd, "echo Testing project1");
         assert_eq!(test_task.depends_on, vec!["build"]);
-        assert!(!test_task.persistent);
         assert_eq!(test_task.inputs, vec!["tests/**/*"]);
         assert_eq!(test_task.outputs, Vec::<String>::new());
         assert_eq!(test_task.ignore, Vec::<String>::new());
@@ -375,7 +360,6 @@ projects:
         build:
           cmd: ""
           depends_on: []
-          persistent: false
           inputs: []
           outputs: []
           ignore: []
@@ -407,7 +391,6 @@ projects:
         build:
           cmd: echo Building
           depends_on: []
-          persistent: false
           inputs: []
           outputs: []
           ignore: []
@@ -423,38 +406,6 @@ projects:
                 assert_eq!(task, "build");
             }
             _ => panic!("Expected CacheWithoutOutputs error"),
-        }
-    }
-
-    #[test]
-    fn test_cache_and_persistent() {
-        let yaml = r#"
-version: 1
-env: {}
-projects:
-    - name: project1
-      root: ./project1
-      env_path: .env
-      tasks:
-        build:
-            cmd: echo Building
-            depends_on: []
-            persistent: true
-            inputs: []
-            outputs: ["dist/**/*"]
-            ignore: []
-            cache: true
-            restart:
-                strategy: Never
-                delay: null
-"#;
-        let err = FyrerConfig::new_from_str(yaml).err().unwrap();
-        match err {
-            FyrerError::Config(ConfigError::CacheAndPersistent { project, task }) => {
-                assert_eq!(project, "project1");
-                assert_eq!(task, "build");
-            }
-            _ => panic!("Expected CacheAndPersistent error"),
         }
     }
 }

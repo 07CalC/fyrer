@@ -58,4 +58,10 @@ impl Logger {
             println!("{task}: {message}");
         }
     }
+
+    pub async fn send(&self, log_message: LogMessage) {
+        if let Err(e) = self.sender.send(log_message).await {
+            eprintln!("Logger error: {e}");
+        }
+    }
 }

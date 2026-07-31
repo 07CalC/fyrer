@@ -24,8 +24,6 @@ pub enum ConfigError {
     EmptyCommand { project: String, task: String },
     #[error("task '{task}' in project '{project}' has cache enabled but no outputs defined")]
     CacheWithoutOutputs { project: String, task: String },
-    #[error("task '{task}' in project '{project}' cannot be both cacheable and persistent")]
-    CacheAndPersistent { project: String, task: String },
     #[error(
         "task '{task}' in project '{project}' uses the FileChange restart strategy but has no inputs defined"
     )]

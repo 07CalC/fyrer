@@ -12,4 +12,6 @@ pub enum WatcherError {
     },
     #[error("project root '{0}' is not a directory")]
     MissingRoot(String),
+    #[error("failed to send log message: {0}")]
+    LogSend(#[from] tokio::sync::mpsc::error::SendError<crate::logger::LogMessage>),
 }
