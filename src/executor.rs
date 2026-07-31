@@ -8,9 +8,9 @@ use crate::{
 };
 use tokio::{io::AsyncBufReadExt, process::Command};
 
-pub async fn execute_tasks(task_name: &str) -> FyrerResult<()> {
+pub async fn execute_tasks(tasks: &[TaskId]) -> FyrerResult<()> {
     let state = global::get();
-    let order = state.task_graph.get_order(task_name)?;
+    let order = state.task_graph.get_orders(tasks)?;
     for batch in order {
         let mut handles = vec![];
         for task_id in batch {

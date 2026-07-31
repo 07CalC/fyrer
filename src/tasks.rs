@@ -65,6 +65,14 @@ impl TaskId {
         }
     }
 
+    pub fn project_name(&self) -> &str {
+        &self.project_name
+    }
+
+    pub fn task_name(&self) -> &str {
+        &self.task_name
+    }
+
     pub fn to_string(&self) -> String {
         format!("{}:{}", self.project_name, self.task_name)
     }

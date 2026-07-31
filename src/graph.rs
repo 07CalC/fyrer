@@ -97,20 +97,29 @@ impl TaskGraph {
         false
     }
     pub fn get_order(&self, task: &str) -> FyrerResult<Vec<Vec<TaskId>>> {
-        let task_id = TaskId::from_string(&task).ok_or_else(|| {
+        let task_id = TaskId::from_string(task).ok_or_else(|| {
             crate::error::FyrerError::Graph(GraphError::InvalidTaskId {
                 dependency: task.to_string(),
                 task: task.to_string(),
             })
         })?;
+        self.get_orders(&[task_id])
+    }
+
+    pub fn get_orders(&self, tasks: &[TaskId]) -> FyrerResult<Vec<Vec<TaskId>>> {
+        for id in tasks {
+            if !self.nodes.contains_key(id) {
+                return Err(crate::error::FyrerError::Graph(GraphError::TaskNotFound(
+                    id.to_string(),
+                )));
+            }
+        }
 
         let mut relevant = HashSet::new();
-        let mut stack = vec![task_id];
+        let mut stack: Vec<TaskId> = tasks.to_vec();
         while let Some(id) = stack.pop() {
             if relevant.insert(id.clone()) {
-                let node = self.nodes.get(&id).ok_or_else(|| {
-                    crate::error::FyrerError::Graph(GraphError::TaskNotFound(id.to_string()))
-                })?;
+                let node = &self.nodes[&id];
                 stack.extend(node.deps.iter().cloned());
             }
         }
@@ -178,5 +187,74 @@ impl TaskGraph {
                 task_name.to_string(),
             ))),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::HashMap;
+
+    use crate::{
+        config::{RestartConfig, RestartStrategy},
+        tasks::{Task, TaskId},
+    };
+
+    use super::TaskGraph;
+
+    fn task(project: &str, name: &str, deps: Vec<String>) -> (TaskId, Task) {
+        let id = TaskId::new(project, name);
+        let task = Task {
+            project_name: project.to_string(),
+            project_root: "./".into(),
+            env: HashMap::new(),
+            task_name: name.to_string(),
+            cmd: "echo hi".into(),
+            depends_on: deps,
+            persistent: false,
+            inputs: vec![],
+            outputs: vec![],
+            ignore: vec![],
+            cache: false,
+            restart: RestartConfig {
+                strategy: RestartStrategy::Never,
+                delay: None,
+            },
+        };
+        (id, task)
+    }
+
+    #[test]
+    fn test_get_orders_multi_root_dedupes_shared_deps() {
+        let mut map = HashMap::new();
+        let (id, t) = task("web", "build", vec!["ui:build".into()]);
+        map.insert(id, t);
+        let (id, t) = task("web", "test", vec!["ui:build".into()]);
+        map.insert(id, t);
+        let (id, t) = task("ui", "build", vec![]);
+        map.insert(id, t);
+
+        let graph = TaskGraph::new(&map).unwrap();
+        graph.validate().unwrap();
+
+        let order = graph
+            .get_orders(&[TaskId::new("web", "build"), TaskId::new("web", "test")])
+            .unwrap();
+
+        assert_eq!(order.len(), 2);
+        assert_eq!(order[0], vec![TaskId::new("ui", "build")]);
+        let second: Vec<String> = order[1].iter().map(|id| id.to_string()).collect();
+        assert!(second.contains(&"web:build".to_string()));
+        assert!(second.contains(&"web:test".to_string()));
+    }
+
+    #[test]
+    fn test_get_orders_unknown_task() {
+        let mut map = HashMap::new();
+        let (id, t) = task("web", "build", vec![]);
+        map.insert(id, t);
+
+        let graph = TaskGraph::new(&map).unwrap();
+
+        assert!(graph.get_orders(&[TaskId::new("nope", "nope")]).is_err());
     }
 }
