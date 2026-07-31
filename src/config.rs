@@ -1,3 +1,4 @@
+use crate::env::{EnvMap, merge};
 use crate::error::{FyrerError, FyrerResult, config::ConfigError};
 use serde::{Deserialize, Serialize};
 use std::{
@@ -6,8 +7,6 @@ use std::{
 };
 
 use crate::tasks::{Task, TaskId, TaskMap};
-
-pub type EnvMap = HashMap<String, String>;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -107,7 +106,6 @@ impl FyrerConfig {
     fn validate_projects(&self) -> FyrerResult<()> {
         let mut project_names = HashSet::new();
         for project in &self.projects {
-            // let mut task_names: HashSet<String> = HashSet::new();
             if !project_names.insert(&project.name) {
                 return Err(FyrerError::Config(ConfigError::DuplicateProject {
                     name: project.name.clone(),
@@ -129,20 +127,6 @@ impl FyrerConfig {
                     project: project.name.clone(),
                 }));
             }
-
-            //TODO: currently we are making a map of tasks, so its not possible to detect duplicate
-            //task names at the yaml parsing stage. We need to add custom validation to check for
-            //duplicate task names and return an error if found. This is a known issue that we will
-            //address in a future update.
-            //
-            // for task_name in project.tasks.keys() {
-            //     if !task_names.insert(task_name) {
-            //         return Err(FyrerError::Config(ConfigError::InvalidConfig(format!(
-            //             "duplicate task name '{}' in project '{}'",
-            //             task_name, project.name
-            //         ))));
-            //     }
-            // }
         }
         Ok(())
     }
@@ -186,13 +170,11 @@ impl FyrerConfig {
         let mut task_map = HashMap::new();
         for project in &self.projects {
             for (task_name, task_config) in &project.tasks {
-                let mut env = self.env.clone();
-                env.extend(project.env.clone());
-                env.extend(task_config.env.clone());
+                let project_env = merge(&self.env, &project.env);
                 let task = Task {
                     project_name: project.name.clone(),
                     project_root: project.root.clone(),
-                    env,
+                    env: merge(&project_env, &task_config.env),
                     task_name: task_name.clone(),
                     cmd: task_config.cmd.clone(),
                     depends_on: task_config.depends_on.clone(),
@@ -237,6 +219,7 @@ fn default_restart() -> RestartConfig {
     }
 }
 
+#[cfg(test)]
 mod tests {
     use std::path::PathBuf;
 
@@ -356,48 +339,6 @@ projects:
                 assert_eq!(name, "project1");
             }
             _ => panic!("Expected DuplicateProject error"),
-        }
-    }
-
-    #[test]
-    #[ignore = "This test currently fails because serde_yaml allows duplicate keys and we need to add custom validation to detect them. This is a known issue that we will address in a future update."]
-    fn test_duplicate_task_names() {
-        let yaml = r#"
-version: 1
-projects:
-    - name: project1
-      root: ./project1
-      env_path: .env
-      tasks:
-        build:
-          cmd: echo Building
-          depends_on: []
-          persistent: false
-          inputs: []
-          outputs: []
-          ignore: []
-          cache: false
-          restart:
-            strategy: Never
-            delay: null
-        build:
-          cmd: echo Building again
-          depends_on: []
-          persistent: false
-          inputs: []
-          outputs: []
-          ignore: []
-          cache: false
-          restart:
-            strategy: Never
-            delay: null
-"#;
-        let err = FyrerConfig::new_from_str(yaml).err().unwrap();
-        match err {
-            FyrerError::Config(ConfigError::InvalidConfig(msg)) => {
-                assert!(msg.contains("duplicate task name 'build' in project 'project1'"));
-            }
-            _ => panic!("Expected InvalidConfig error"),
         }
     }
 

@@ -1,9 +1,9 @@
 use std::collections::HashMap;
-pub fn merge_env(
-    global: &HashMap<String, String>,
-    project: &HashMap<String, String>,
-) -> HashMap<String, String> {
-    let mut merged = global.clone();
-    merged.extend(project.clone());
+
+pub type EnvMap = HashMap<String, String>;
+
+pub fn merge(base: &EnvMap, overrides: &EnvMap) -> EnvMap {
+    let mut merged = base.clone();
+    merged.extend(overrides.clone());
     merged
 }

@@ -1,7 +1,9 @@
 use std::collections::{HashMap, HashSet, VecDeque};
 
-use crate::error::{FyrerResult, graph::GraphError};
-use crate::tasks::{Task, TaskId, TaskMap};
+use crate::{
+    error::{FyrerError, FyrerResult, graph::GraphError},
+    tasks::{Task, TaskId, TaskMap},
+};
 
 #[derive(Debug)]
 pub struct TaskGraph {
@@ -22,12 +24,12 @@ impl TaskGraph {
             nodes: HashMap::new(),
         };
 
-        for (id, _) in task_map {
+        for id in task_map.keys() {
             graph.nodes.insert(
                 id.clone(),
                 TaskNode {
                     id: id.clone(),
-                    task: task_map.get(&id).unwrap().clone(),
+                    task: task_map.get(id).unwrap().clone(),
                     deps: vec![],
                     dependents: Vec::new(),
                 },
@@ -43,21 +45,17 @@ impl TaskGraph {
                 };
 
                 if dep_id == *id {
-                    return Err(crate::error::FyrerError::Graph(GraphError::SelfDependency(
-                        id.to_string(),
-                    )));
+                    return Err(FyrerError::Graph(GraphError::SelfDependency(id.to_string())));
                 }
 
                 if !graph.nodes.contains_key(&dep_id) {
-                    return Err(crate::error::FyrerError::Graph(
-                        GraphError::MissingDependency {
-                            dependent: id.to_string(),
-                            dependency: dep_id.to_string(),
-                        },
-                    ));
+                    return Err(FyrerError::Graph(GraphError::MissingDependency {
+                        dependent: id.to_string(),
+                        dependency: dep_id.to_string(),
+                    }));
                 }
 
-                graph.nodes.get_mut(&id).unwrap().deps.push(dep_id.clone());
+                graph.nodes.get_mut(id).unwrap().deps.push(dep_id.clone());
                 graph
                     .nodes
                     .get_mut(&dep_id)
@@ -72,12 +70,8 @@ impl TaskGraph {
     pub fn validate(&self) -> FyrerResult<()> {
         let mut visited = HashMap::new();
         for node in self.nodes.values() {
-            if !visited.contains_key(&node.id) {
-                if self.has_cycle(&node.id, &mut visited) {
-                    return Err(crate::error::FyrerError::Graph(GraphError::CycleDetected(
-                        node.id.to_string(),
-                    )));
-                }
+            if !visited.contains_key(&node.id) && self.has_cycle(&node.id, &mut visited) {
+                return Err(FyrerError::Graph(GraphError::CycleDetected(node.id.to_string())));
             }
         }
         Ok(())
@@ -96,22 +90,11 @@ impl TaskGraph {
         visited.insert(node_id.clone(), false);
         false
     }
-    pub fn get_order(&self, task: &str) -> FyrerResult<Vec<Vec<TaskId>>> {
-        let task_id = TaskId::from_string(task).ok_or_else(|| {
-            crate::error::FyrerError::Graph(GraphError::InvalidTaskId {
-                dependency: task.to_string(),
-                task: task.to_string(),
-            })
-        })?;
-        self.get_orders(&[task_id])
-    }
 
     pub fn get_orders(&self, tasks: &[TaskId]) -> FyrerResult<Vec<Vec<TaskId>>> {
         for id in tasks {
             if !self.nodes.contains_key(id) {
-                return Err(crate::error::FyrerError::Graph(GraphError::TaskNotFound(
-                    id.to_string(),
-                )));
+                return Err(FyrerError::Graph(GraphError::TaskNotFound(id.to_string())));
             }
         }
 
@@ -171,22 +154,6 @@ impl TaskGraph {
         }
 
         Ok(levels)
-    }
-
-    pub fn get_task(&self, task_name: &str) -> FyrerResult<&Task> {
-        let task_id = TaskId::from_string(task_name).ok_or_else(|| {
-            crate::error::FyrerError::Graph(GraphError::InvalidTaskId {
-                dependency: task_name.to_string(),
-                task: task_name.to_string(),
-            })
-        })?;
-
-        match self.nodes.get(&task_id) {
-            Some(node) => Ok(&node.task),
-            None => Err(crate::error::FyrerError::Graph(GraphError::TaskNotFound(
-                task_name.to_string(),
-            ))),
-        }
     }
 }
 

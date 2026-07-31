@@ -30,8 +30,4 @@ pub enum ConfigError {
         "task '{task}' in project '{project}' uses the FileChange restart strategy but has no inputs defined"
     )]
     FileChangeWithoutInputs { project: String, task: String },
-    #[error("invalid config: {0}")]
-    InvalidConfig(String),
-    #[error("{0}")]
-    Other(String),
 }

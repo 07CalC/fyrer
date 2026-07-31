@@ -1,14 +1,16 @@
-use crate::config::{EnvMap, RestartConfig};
-use crate::error::{FyrerError, FyrerResult, task::TaskError};
+use crate::config::RestartConfig;
+use crate::env::EnvMap;
+use std::fmt;
 use std::hash::{DefaultHasher, Hash, Hasher};
-use std::{collections::HashMap, fmt::Debug, path::PathBuf};
+use std::{collections::HashMap, path::PathBuf};
 
-#[derive(Clone, PartialEq, Hash, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct TaskId {
     project_name: String,
     task_name: String,
 }
-#[derive(Clone)]
+
+#[derive(Debug, Clone)]
 pub struct Task {
     pub project_name: String,
     pub project_root: PathBuf,
@@ -22,37 +24,6 @@ pub struct Task {
     pub ignore: Vec<String>,
     pub cache: bool,
     pub restart: RestartConfig,
-}
-
-impl Task {
-    pub fn execute(&self) -> FyrerResult<()> {
-        let cmd = &self.cmd;
-        let mut child = std::process::Command::new("sh");
-        for (arg, value) in &self.env {
-            child.env(arg, value);
-        }
-        child.arg("-c").arg(cmd);
-        let stdout = std::process::Stdio::inherit();
-        let stderr = std::process::Stdio::inherit();
-        child.stdout(stdout).stderr(stderr);
-        let status = child.status().map_err(|e| {
-            FyrerError::Task(TaskError::Spawn {
-                task: self.get_id().to_string(),
-                source: e,
-            })
-        })?;
-        if !status.success() {
-            return Err(FyrerError::Task(TaskError::Failed {
-                task: self.get_id().to_string(),
-                code: status.code().unwrap_or(-1),
-            }));
-        }
-        Ok(())
-    }
-
-    pub fn get_id(&self) -> TaskId {
-        TaskId::new(&self.project_name, &self.task_name)
-    }
 }
 
 pub type TaskMap = HashMap<TaskId, Task>;
@@ -73,17 +44,14 @@ impl TaskId {
         &self.task_name
     }
 
-    pub fn to_string(&self) -> String {
-        format!("{}:{}", self.project_name, self.task_name)
-    }
-    pub fn from_string(s: &str) -> Option<TaskId> {
-        let parts: Vec<&str> = s.split(':').collect();
-        if parts.len() == 2 {
-            Some(TaskId::new(parts[0], parts[1]))
-        } else {
-            None
+    pub fn parse(s: &str) -> Option<TaskId> {
+        let (project, task) = s.split_once(':')?;
+        if project.is_empty() || task.is_empty() || task.contains(':') {
+            return None;
         }
+        Some(TaskId::new(project, task))
     }
+
     pub fn hash(&self) -> usize {
         let mut hasher = DefaultHasher::new();
         self.project_name.hash(&mut hasher);
@@ -92,24 +60,8 @@ impl TaskId {
     }
 }
 
-impl Debug for TaskId {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl fmt::Display for TaskId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}:{}", self.project_name, self.task_name)
-    }
-}
-
-impl Debug for Task {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("Task")
-            .field("\nproject_name", &self.project_name)
-            .field("\ntask_name", &self.task_name)
-            .field("\ncmd", &self.cmd)
-            .field("\ndepends_on", &self.depends_on)
-            .field("\npersistent", &self.persistent)
-            .field("\ninputs", &self.inputs)
-            .field("\noutputs", &self.outputs)
-            .field("\nignore", &self.ignore)
-            .field("\ncache", &self.cache)
-            .finish()
     }
 }
