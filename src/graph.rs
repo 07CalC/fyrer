@@ -17,12 +17,12 @@ pub struct TaskNode {
 }
 
 impl TaskGraph {
-    pub fn new(task_map: TaskMap) -> FyrerResult<Self> {
+    pub fn new(task_map: &TaskMap) -> FyrerResult<Self> {
         let mut graph = TaskGraph {
             nodes: HashMap::new(),
         };
 
-        for (id, _) in &task_map {
+        for (id, _) in task_map {
             graph.nodes.insert(
                 id.clone(),
                 TaskNode {
@@ -42,7 +42,7 @@ impl TaskGraph {
                     TaskId::new(&task.project_name, dep)
                 };
 
-                if dep_id == id {
+                if dep_id == *id {
                     return Err(crate::error::FyrerError::Graph(GraphError::SelfDependency(
                         id.to_string(),
                     )));
@@ -96,11 +96,11 @@ impl TaskGraph {
         visited.insert(node_id.clone(), false);
         false
     }
-    pub fn get_order(&self, task: String) -> FyrerResult<Vec<Vec<Task>>> {
+    pub fn get_order(&self, task: &str) -> FyrerResult<Vec<Vec<TaskId>>> {
         let task_id = TaskId::from_string(&task).ok_or_else(|| {
             crate::error::FyrerError::Graph(GraphError::InvalidTaskId {
-                dependency: task.clone(),
-                task: task.clone(),
+                dependency: task.to_string(),
+                task: task.to_string(),
             })
         })?;
 
@@ -110,7 +110,7 @@ impl TaskGraph {
             if relevant.insert(id.clone()) {
                 let node = self.nodes.get(&id).ok_or_else(|| {
                     crate::error::FyrerError::Graph(GraphError::MissingDependency {
-                        dependent: task.clone(),
+                        dependent: task.to_string(),
                         dependency: id.to_string(),
                     })
                 })?;
@@ -141,7 +141,7 @@ impl TaskGraph {
             levels.push(
                 queue
                     .iter()
-                    .map(|id| self.nodes.get(id).unwrap().task.clone())
+                    .map(|id| self.nodes.get(id).unwrap().id.clone())
                     .collect(),
             );
 

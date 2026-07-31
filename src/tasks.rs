@@ -1,4 +1,4 @@
-use std::{collections::HashMap, fmt::Debug, os::unix::process::CommandExt, path::PathBuf};
+use std::{collections::HashMap, fmt::Debug, path::PathBuf};
 
 use crate::config::{EnvMap, RestartConfig};
 

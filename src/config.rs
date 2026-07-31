@@ -247,7 +247,13 @@ fn default_restart() -> RestartConfig {
 }
 
 mod tests {
-    use super::*;
+    use std::path::PathBuf;
+
+    use crate::{
+        config::{FyrerConfig, RestartStrategy},
+        error::{FyrerError, config::ConfigError},
+    };
+
     #[test]
     fn test_valid_config() {
         let yaml = r#"

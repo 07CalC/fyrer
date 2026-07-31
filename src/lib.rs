@@ -5,6 +5,7 @@ pub mod env;
 pub mod error;
 pub mod executor;
 pub mod fs;
+pub mod global;
 pub mod graph;
 pub mod scheduler;
 pub mod tasks;
