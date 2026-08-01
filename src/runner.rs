@@ -23,7 +23,7 @@ impl Runner {
     }
 
     fn from_config(config: FyrerConfig) -> FyrerResult<Self> {
-        let task_map = config.create_task_map();
+        let task_map = config.create_task_map()?;
         let task_graph = TaskGraph::new(&task_map)?;
         task_graph.validate()?;
         Ok(Self {
@@ -66,7 +66,9 @@ impl Runner {
                     })
                 })?;
                 if !self.task_map.contains_key(&id) {
-                    return Err(FyrerError::Graph(GraphError::TaskNotFound(spec.to_string())));
+                    return Err(FyrerError::Graph(GraphError::TaskNotFound(
+                        spec.to_string(),
+                    )));
                 }
                 Ok(vec![id])
             }
@@ -79,7 +81,9 @@ impl Runner {
                     .collect();
                 matches.sort_by_key(|id| id.to_string());
                 if matches.is_empty() {
-                    return Err(FyrerError::Graph(GraphError::TaskNotFound(spec.to_string())));
+                    return Err(FyrerError::Graph(GraphError::TaskNotFound(
+                        spec.to_string(),
+                    )));
                 }
                 Ok(matches)
             }

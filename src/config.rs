@@ -1,4 +1,4 @@
-use crate::env::{EnvMap, merge};
+use crate::env::{EnvMap, get_task_env_var, merge};
 use crate::error::{FyrerError, FyrerResult, config::ConfigError};
 use serde::{Deserialize, Serialize};
 use std::{
@@ -158,15 +158,16 @@ impl FyrerConfig {
         Ok(())
     }
 
-    pub fn create_task_map(&self) -> TaskMap {
+    pub fn create_task_map(&self) -> FyrerResult<TaskMap> {
         let mut task_map = HashMap::new();
         for project in &self.projects {
+            let env_path = project.root.join(&project.env_path);
             for (task_name, task_config) in &project.tasks {
                 let project_env = merge(&self.env, &project.env);
                 let task = Task {
                     project_name: project.name.clone(),
                     project_root: project.root.clone(),
-                    env: merge(&project_env, &task_config.env),
+                    env: get_task_env_var(&project_env, &task_config.env, &env_path)?,
                     task_name: task_name.clone(),
                     cmd: task_config.cmd.clone(),
                     depends_on: task_config.depends_on.clone(),
@@ -180,7 +181,7 @@ impl FyrerConfig {
                 task_map.insert(task_id, task);
             }
         }
-        task_map
+        Ok(task_map)
     }
 }
 fn default_vec_string() -> Vec<String> {
