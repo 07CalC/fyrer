@@ -1,16 +1,23 @@
-# fyrer 
+# fyrer
 
-lightweight tool to run multiple dev servers concurrently
+A declarative, fast and lightweight monorepo tool that runs multiple dev
+servers and build tasks concurrently.
+
+`fyrer` reads a `fyrer.yml` file describing projects and their tasks, resolves
+the dependency graph between tasks, runs each level of the graph concurrently,
+and streams every task's output through a colorized, prefixed logger.
+Long-running tasks can be restarted automatically when their watched input
+files change.
 
 ## Installation
 
-### install using cargo:
-  
+### Install using cargo
+
 ```bash
 cargo install fyrer
 ```
 
-### build from source:
+### Build from source
 
 ```bash
 git clone https://github.com/07calc/fyrer
@@ -21,54 +28,76 @@ cargo install --path .
 
 ## Usage
 
-`fyrer` looks for a `fyrer.yml` file in the current directory:
+`fyrer` looks for a `fyrer.yml` file in the current directory. A full example
+is available at [`fyrer.example.yml`](./fyrer.example.yml).
 
 ```bash
-fyrer
+# Run every task
+fyrer run
+
+# Run a single task or every task with a given name
+fyrer run web:dev
+fyrer run build
+
+# Show the execution plan without running anything
+fyrer run dev --dry-run
+
+# List every project and its tasks
+fyrer list
+
+# Point at a different configuration file
+fyrer --config path/to/fyrer.yml run
 ```
 
-example config file `fyrer.yml`:
+## Configuration
 
 ```yaml
-installers:
-  - dir: ./project1
-    cmd: pip install -r requirements.txt
-
-services:
-  - name: server1
-    cmd: python -m http.server 8000
-    dir: ./project1
-    env_path: .env.local  ## .env file path
-    env:                  ## overrides the .env file
-      PORT: 8000
-      ENV: dev
-
-  - name: server2
-    cmd: npm start
-    dir: ./project2
-    watch: true  # enable hot reload
-    quiet: true  # disable logs
-    ignore:
-      - "node_modules/**"
-      - "*.db"
+version: 1                       # config format version (required)
+env:                             # variables shared by every project
+  NODE_ENV: development
+projects:                        # projects that make up the monorepo
+  - name: web                    # unique project name
+    root: ./apps/web             # relative project root
+    env:                         # variables shared by every task
+      PORT: "3000"
+    env_path: .env               # .env file path, relative to root
+    tasks:
+      dev:
+        cmd: bun run dev         # shell command to run
+        depends_on: [build]      # tasks that must run first
+        inputs: [src/**]         # globs of watched input files
+        outputs: [dist/**]       # globs of produced output files
+        ignore: [node_modules/**]  # globs excluded from watching
+        cache: false             # allow skipping when outputs are fresh
+        restart:
+          strategy: FileChange   # FileChange | OnFailure | Never
+          delay: 300             # debounce before restarting (ms)
+        env:                     # per-task variables (highest precedence)
+          PORT: "8080"
 ```
+
+### Environment precedence
+
+From lowest to highest: root-level `env`, project-level `env`, the project's
+`.env` file, then task-level `env`.
+
+### Restart strategies
+
+- `FileChange` – restart whenever a watched input file changes (requires
+  `inputs`).
+- `OnFailure` – restart after the process exits with a failure.
+- `Never` – never restart.
 
 ## Features
 
-- Run multiple development servers concurrently
-- Define installer commands that run before starting each server
-- Set a working directory per server
-- Automatic env parsing from .env file
-- Assign environment variables per server (overrides the env file)
-- YAML-based configuration file
-- Prefixed log output for readability
-- Cross-platform support (Linux, macOS, Windows)
-- Optional hot reload
-- Configurable file and directory ignore rules for hot reload
+- Run multiple development servers and build tasks concurrently
+- Declarative YAML-based configuration with validation
+- Dependency-aware topological ordering
+- Automatic `.env` file parsing with per-task overrides
+- Colorized, prefixed log output
+- Optional file-watching with automatic restarts and debouncing
+- Graceful shutdown on `SIGINT`/`SIGTERM`, killing spawned process groups
 
-## Notes
+## License
 
-- `watch: true` enables file monitoring for that server.
-- Ignore patterns follow `glob` syntax.
-- restarts servers when watched files change.
-- envs defined in `fyrer.yml` overrides those in `.env` file.
+MIT

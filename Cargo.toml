@@ -1,22 +1,26 @@
 [package]
 name = "fyrer"
-version = "0.2.3"
+version = "0.3.0"
 edition = "2024"
-authors = ["Calc hello@vinm.me"]
-description = "A lightweight tool to run multiple dev servers concurrently"
-readme = "README.md"
+authors = ["Calc <hello@vinm.me>"]
 license = "MIT"
+description = "A declarative, fast and lightweight monorepo tool"
 repository = "https://github.com/07calc/fyrer"
-keywords = ["dev", "server", "concurrent", "tool"]
-categories = ["development-tools"]
-exclude = ["/target/*", "*.rs.bk", "*.log", "examples/*"]
+readme = "README.md"
+keywords = ["monorepo", "task-runner", "dev-server", "concurrency", "cli"]
+categories = ["command-line-utilities", "development-tools"]
 
 [dependencies]
-clearscreen = "4.0.2"
-colored = "2.0"
+clap = { version = "4.5", features = ["derive"] }
+colored = "3.1.1"
+glob = "0.3.4"
+libc = "0.2"
+notify = "8.2.0"
 serde = { version = "1.0", features = ["derive"] }
-serde_derive = "1.0.228"
-serde_yaml = "0.9.34"
-tokio = { version = "1.0", features = ["full"] }
-notify = "6.1"
-globset = "0.4.18"
+serde_yaml = "0.9"
+thiserror = "1.0"
+tokio = { version = "1.30", features = ["full"] }
+
+[lints.clippy]
+all = "warn"
+pedantic = "warn"

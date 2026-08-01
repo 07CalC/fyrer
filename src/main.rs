@@ -1,47 +1,62 @@
-use colored::Colorize;
+//! The `fyrer` command-line entry point.
 
-use crate::{colors::COLORS, parser::load_config};
+use clap::{Parser, Subcommand};
+use fyrer::{error::FyrerResult, global, runner::Runner};
 
-mod colors;
-mod config;
-mod env_parser;
-mod installer;
-mod kill_process;
-mod parser;
-mod print_banner;
-mod runner;
-mod spawn_service;
-mod watcher;
+#[derive(Parser)]
+#[command(
+    name = "fyrer",
+    version,
+    about = "A declarative, fast and lightweight monorepo tool"
+)]
+struct Cli {
+    #[arg(short, long, default_value = "fyrer.yml")]
+    config: String,
 
-#[tokio::main]
-async fn main() {
-    clearscreen::clear().expect("Failed to clear the screen");
-    let config = load_config("fyrer.yml");
-    let mut handles = vec![];
-    print_banner::print_banner();
-    installer::run_installers(&config).await;
-    println!("{} {}", "┌─", "Starting services...".bright_cyan().bold());
+    #[command(subcommand)]
+    command: Command,
+}
 
-    println!("{}", "│".bright_black());
+#[derive(Subcommand)]
+enum Command {
+    Run {
+        /// The task to run: `project:task`, a bare `task` name, or empty for all.
+        task: Option<String>,
+        #[arg(long)]
+        dry_run: bool,
+    },
+    List,
+}
 
-    let max_name_len = config
-        .services
-        .iter()
-        .map(|s| s.name.len() + 2) // +2 for brackets [ ]
-        .max()
-        .unwrap_or(8); // default if no services
+fn main() {
+    let exit_code = match tokio::runtime::Runtime::new() {
+        Ok(runtime) => match runtime.block_on(real_main()) {
+            Ok(()) if global::is_shutting_down() => global::shutdown_code(),
+            Ok(()) => 0,
+            Err(error) => {
+                eprintln!("error: {error}");
+                1
+            }
+        },
+        Err(error) => {
+            eprintln!("failed to start tokio runtime: {error}");
+            1
+        }
+    };
+    std::process::exit(exit_code);
+}
 
-    for (i, service) in config.services.into_iter().enumerate() {
-        let color = COLORS[i % COLORS.len()];
-        let handle = tokio::spawn(runner::runner(service, color, max_name_len));
-        handles.push(handle);
+async fn real_main() -> FyrerResult<()> {
+    let cli = Cli::parse();
+    let runner = Runner::load(&cli.config)?;
+    match cli.command {
+        Command::List => runner.list(),
+        Command::Run { task, dry_run } => {
+            let tasks = runner.resolve(task.as_deref())?;
+            if dry_run {
+                return runner.plan(&tasks);
+            }
+            runner.run(&tasks).await
+        }
     }
-    tokio::signal::ctrl_c()
-        .await
-        .expect("Failed to listen for Ctrl+C");
-    println!(
-        "\n{} {}",
-        "└─",
-        "Received Ctrl+C, shutting down...".bright_cyan().bold()
-    );
 }
