@@ -15,6 +15,7 @@ use tokio::{
 const DEFAULT_RESTART_DELAY_MS: u64 = 200;
 
 use crate::{
+    cache,
     config::RestartStrategy,
     error::{FyrerError, FyrerResult, LoggerError, TaskError},
     global,
@@ -104,11 +105,37 @@ pub async fn execute_tasks(tasks: &[TaskId]) -> FyrerResult<Vec<TaskId>> {
                         Ok(Some(watched_id))
                     })
                 }
-                RestartStrategy::OnFailure => {
-                    tokio::spawn(async move { execute_task_with_retry(task).await.map(|()| None) })
-                }
-                RestartStrategy::Never => {
-                    tokio::spawn(async move { execute_task(task).await.map(|()| None) })
+                RestartStrategy::OnFailure | RestartStrategy::Never => {
+                    let cacheable = task.cache;
+                    let strategy = task.restart.strategy.clone();
+                    tokio::spawn(async move {
+                        if cacheable && cache::is_fresh(&task) {
+                            let _ = global::get()
+                                .log_sender
+                                .send(LogMessage {
+                                    task_id: TaskId::new(&task.project_name, &task.task_name),
+                                    message: "cache hit, skipping".to_string(),
+                                    log_type: LogType::System,
+                                })
+                                .await;
+                            return Ok(None);
+                        }
+                        let result = match strategy {
+                            RestartStrategy::OnFailure => {
+                                execute_task_with_retry(task.clone()).await
+                            }
+                            RestartStrategy::Never => execute_task(task.clone()).await,
+                            RestartStrategy::FileChange => unreachable!(),
+                        };
+                        result?;
+                        if cacheable && let Err(error) = cache::record(&task) {
+                            eprintln!(
+                                "error: failed to record cache for {}: {error}",
+                                TaskId::new(&task.project_name, &task.task_name)
+                            );
+                        }
+                        Ok(None)
+                    })
                 }
             };
             handles.push((task_id, handle));

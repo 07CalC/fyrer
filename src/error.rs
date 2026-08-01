@@ -26,6 +26,9 @@ pub enum FyrerError {
 
     #[error("watcher error: {0}")]
     Watch(#[from] WatcherError),
+
+    #[error("cache error: {0}")]
+    Cache(#[from] CacheError),
 }
 
 #[derive(Debug, Error)]
@@ -60,6 +63,9 @@ pub enum ConfigError {
 
     #[error("task '{task}' in project '{project}' has cache enabled but no outputs defined")]
     CacheWithoutOutputs { project: String, task: String },
+
+    #[error("task '{task}' in project '{project}' has cache enabled but no inputs defined")]
+    CacheWithoutInputs { project: String, task: String },
 
     #[error(
         "task '{task}' in project '{project}' uses the FileChange restart strategy but has no inputs defined"
@@ -178,6 +184,30 @@ pub enum WatcherError {
 
     #[error("failed to send log message: {0}")]
     LogSend(#[from] tokio::sync::mpsc::error::SendError<LogMessage>),
+}
+
+#[derive(Debug, Error)]
+pub enum CacheError {
+    #[error("failed to expand input glob '{pattern}': {source}")]
+    Glob {
+        pattern: String,
+        #[source]
+        source: glob::PatternError,
+    },
+
+    #[error("failed to read input file '{path}': {source}")]
+    ReadInput {
+        path: String,
+        #[source]
+        source: std::io::Error,
+    },
+
+    #[error("failed to write cache file '{path}': {source}")]
+    Write {
+        path: String,
+        #[source]
+        source: std::io::Error,
+    },
 }
 
 #[cfg(test)]

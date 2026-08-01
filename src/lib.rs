@@ -15,6 +15,7 @@
 //! assert_eq!(id.to_string(), "web:build");
 //! ```
 
+pub mod cache;
 pub mod config;
 pub mod env;
 pub mod error;

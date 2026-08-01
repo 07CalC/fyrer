@@ -220,6 +220,13 @@ impl FyrerConfig {
                     }));
                 }
 
+                if task.cache && task.inputs.is_empty() {
+                    return Err(FyrerError::Config(ConfigError::CacheWithoutInputs {
+                        project: project.name.clone(),
+                        task: task_name.clone(),
+                    }));
+                }
+
                 if task.restart.strategy == RestartStrategy::FileChange && task.inputs.is_empty() {
                     return Err(FyrerError::Config(ConfigError::FileChangeWithoutInputs {
                         project: project.name.clone(),
@@ -450,6 +457,37 @@ projects:
                 assert_eq!(task, "build");
             }
             _ => panic!("Expected CacheWithoutOutputs error"),
+        }
+    }
+
+    #[test]
+    fn rejects_cache_without_inputs() {
+        let yaml = r"
+version: 1
+env: {}
+projects:
+    - name: project1
+      root: ./project1
+      env_path: .env
+      tasks:
+        build:
+          cmd: echo Building
+          depends_on: []
+          inputs: []
+          outputs: [dist/**/*]
+          ignore: []
+          cache: true
+          restart:
+            strategy: Never
+            delay: null
+";
+        let err = FyrerConfig::new_from_str(yaml).err().unwrap();
+        match err {
+            FyrerError::Config(ConfigError::CacheWithoutInputs { project, task }) => {
+                assert_eq!(project, "project1");
+                assert_eq!(task, "build");
+            }
+            _ => panic!("Expected CacheWithoutInputs error"),
         }
     }
 }
