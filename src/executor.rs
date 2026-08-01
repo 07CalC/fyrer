@@ -11,6 +11,9 @@ use tokio::{
     task::JoinHandle,
 };
 
+/// Default delay between restarts when a task's `restart.delay` is unset.
+const DEFAULT_RESTART_DELAY_MS: u64 = 200;
+
 use crate::{
     config::RestartStrategy,
     error::{FyrerError, FyrerResult, LoggerError, TaskError},
@@ -101,7 +104,10 @@ pub async fn execute_tasks(tasks: &[TaskId]) -> FyrerResult<Vec<TaskId>> {
                         Ok(Some(watched_id))
                     })
                 }
-                RestartStrategy::OnFailure | RestartStrategy::Never => {
+                RestartStrategy::OnFailure => {
+                    tokio::spawn(async move { execute_task_with_retry(task).await.map(|()| None) })
+                }
+                RestartStrategy::Never => {
                     tokio::spawn(async move { execute_task(task).await.map(|()| None) })
                 }
             };
@@ -148,6 +154,48 @@ pub async fn execute_task(task: Task) -> FyrerResult<()> {
         }));
     }
     Ok(())
+}
+
+/// Runs a task, restarting it whenever it exits with a failure, until it
+/// succeeds or a shutdown is requested. A task that fails instantly is
+/// retried after its configured `restart.delay` (or a small default) to
+/// avoid a hot restart loop.
+///
+/// # Errors
+///
+/// Returns an error if the task cannot be spawned or its output cannot be
+/// read.
+pub async fn execute_task_with_retry(task: Task) -> FyrerResult<()> {
+    let task_id = TaskId::new(&task.project_name, &task.task_name);
+    let delay = Duration::from_millis(task.restart.delay.unwrap_or(DEFAULT_RESTART_DELAY_MS));
+    loop {
+        match execute_task(task.clone()).await {
+            Ok(()) => return Ok(()),
+            Err(error) => {
+                if global::is_shutting_down() {
+                    return Ok(());
+                }
+                let message = match &error {
+                    FyrerError::Task(TaskError::Failed { code, .. }) => {
+                        format!("exited with code {code}, restarting")
+                    }
+                    _ => format!("failed, restarting ({error})"),
+                };
+                let _ = global::get()
+                    .log_sender
+                    .send(LogMessage {
+                        task_id: task_id.clone(),
+                        message,
+                        log_type: LogType::System,
+                    })
+                    .await;
+                tokio::select! {
+                    () = tokio::time::sleep(delay) => {}
+                    () = global::shutdown_notified() => return Ok(()),
+                }
+            }
+        }
+    }
 }
 
 /// Spawns a task's command and wires its stdout/stderr to the logger.
