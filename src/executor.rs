@@ -20,14 +20,8 @@ use crate::{
         LogType::{self, System},
     },
     tasks::{Task, TaskId},
+    watcher,
 };
-
-/// A task that keeps running (e.g. a dev server) together with its process.
-pub struct RunningTask {
-    pub task: Task,
-    /// The running child process.
-    pub process: TaskProcess,
-}
 
 /// A spawned child process and the tasks streaming its output.
 pub struct TaskProcess {
@@ -75,19 +69,23 @@ impl Drop for TaskProcess {
 }
 
 /// Runs the given tasks in topological order, spawning each batch
-/// concurrently, and returns the long-running (watched) tasks.
+/// concurrently.
+///
+/// Watched tasks have their file watchers installed as soon as their process
+/// spawns, so a long-running task in the same batch does not delay watching.
+/// Returns the ids of every task that is now being watched.
 ///
 /// # Errors
 ///
 /// Returns an error if the task graph is malformed, a task is missing from
-/// the task map, or any task in the batch fails.
-pub async fn execute_tasks(tasks: &[TaskId]) -> FyrerResult<Vec<RunningTask>> {
+/// the task map, a task fails, or a file watcher cannot be started.
+pub async fn execute_tasks(tasks: &[TaskId]) -> FyrerResult<Vec<TaskId>> {
     let state = global::get();
     let order = state.task_graph.get_orders(tasks)?;
-    let mut running = Vec::new();
+    let mut watched = Vec::new();
 
     for batch in order {
-        let mut handles = Vec::new();
+        let mut handles: Vec<(TaskId, JoinHandle<FyrerResult<Option<TaskId>>>)> = Vec::new();
         for task_id in batch {
             let task = state
                 .task_map
@@ -96,7 +94,12 @@ pub async fn execute_tasks(tasks: &[TaskId]) -> FyrerResult<Vec<RunningTask>> {
                 .ok_or_else(|| FyrerError::Task(TaskError::NotFound(task_id.to_string())))?;
             let handle = match task.restart.strategy {
                 RestartStrategy::FileChange => {
-                    tokio::spawn(async move { start_task(task).await.map(Some) })
+                    let watched_id = task_id.clone();
+                    tokio::spawn(async move {
+                        let process = start_task(&task).await?;
+                        watcher::start_watch(task, process).await?;
+                        Ok(Some(watched_id))
+                    })
                 }
                 RestartStrategy::OnFailure | RestartStrategy::Never => {
                     tokio::spawn(async move { execute_task(task).await.map(|()| None) })
@@ -106,17 +109,18 @@ pub async fn execute_tasks(tasks: &[TaskId]) -> FyrerResult<Vec<RunningTask>> {
         }
 
         for (task_id, handle) in handles {
-            if let Some(process) = join(handle, &task_id).await? {
-                let task =
-                    state.task_map.get(&task_id).cloned().ok_or_else(|| {
-                        FyrerError::Task(TaskError::NotFound(task_id.to_string()))
-                    })?;
-                running.push(RunningTask { task, process });
+            tokio::select! {
+                result = join(handle, &task_id) => {
+                    if result?.is_some() {
+                        watched.push(task_id);
+                    }
+                }
+                () = global::shutdown_notified() => return Ok(watched),
             }
         }
     }
 
-    Ok(running)
+    Ok(watched)
 }
 
 /// Runs a task to completion, returning an error if it fails.
@@ -126,7 +130,7 @@ pub async fn execute_tasks(tasks: &[TaskId]) -> FyrerResult<Vec<RunningTask>> {
 /// Returns an error if the task cannot be spawned, exits with a non-zero
 /// status, or its output cannot be read.
 pub async fn execute_task(task: Task) -> FyrerResult<()> {
-    let mut process = start_task(task).await?;
+    let mut process = start_task(&task).await?;
     let task_id = process.task_id.clone();
     let status = process.child.wait().await.map_err(|source| {
         FyrerError::Task(TaskError::Wait {
@@ -152,7 +156,7 @@ pub async fn execute_task(task: Task) -> FyrerResult<()> {
 ///
 /// Returns an error if the command cannot be spawned, its stdout or stderr
 /// cannot be captured, or a shutdown was requested while spawning.
-pub async fn start_task(task: Task) -> FyrerResult<TaskProcess> {
+pub async fn start_task(task: &Task) -> FyrerResult<TaskProcess> {
     let task_id = TaskId::new(&task.project_name, &task.task_name);
     let mut command = Command::new("sh");
     command
@@ -201,7 +205,7 @@ pub async fn start_task(task: Task) -> FyrerResult<TaskProcess> {
     log_sender
         .send(LogMessage {
             task_id: task_id.clone(),
-            message: format!("Starting task '{}'", task_id.to_string()),
+            message: format!("Starting task '{task_id}'"),
             log_type: System,
         })
         .await

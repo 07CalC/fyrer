@@ -44,6 +44,11 @@ static SHUTDOWN: OnceLock<Notify> = OnceLock::new();
 
 static GLOBAL_STATE: OnceLock<GlobalState> = OnceLock::new();
 
+/// Initializes the process-wide global state.
+///
+/// # Errors
+///
+/// Returns an error if the state has already been initialized.
 pub fn init(
     task_graph: TaskGraph,
     task_map: TaskMap,
@@ -59,6 +64,11 @@ pub fn init(
         .map_err(|_| FyrerError::State(StateError::AlreadyInitialized))
 }
 
+/// Returns the process-wide global state.
+///
+/// # Panics
+///
+/// Panics if [`init`] has not been called yet.
 #[must_use]
 pub fn get() -> &'static GlobalState {
     GLOBAL_STATE
@@ -131,7 +141,13 @@ pub async fn shutdown_notified() {
     if is_shutting_down() {
         return;
     }
-    SHUTDOWN.get_or_init(Notify::new).notified().await;
+    let notified = SHUTDOWN.get_or_init(Notify::new).notified();
+    tokio::pin!(notified);
+    notified.as_mut().enable();
+    if is_shutting_down() {
+        return;
+    }
+    notified.await;
 }
 
 pub async fn await_shutdown_signal() {

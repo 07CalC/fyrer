@@ -9,7 +9,6 @@ use crate::{
     graph::TaskGraph,
     logger::Logger,
     tasks::{TaskId, TaskMap},
-    watcher,
 };
 
 pub struct Runner {
@@ -18,11 +17,23 @@ pub struct Runner {
 }
 
 impl Runner {
+    /// Loads a runner from a config file path.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the config file cannot be read or parsed, or if
+    /// its tasks cannot be resolved into a valid graph.
     pub fn load(path: impl AsRef<Path>) -> FyrerResult<Self> {
         let config = FyrerConfig::new_from_path(path)?;
         Self::from_config(&config)
     }
 
+    /// Builds a runner from an already-parsed config.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the config's tasks cannot be resolved into a valid
+    /// graph.
     pub fn from_config(config: &FyrerConfig) -> FyrerResult<Self> {
         let task_map = config.create_task_map()?;
         let task_graph = TaskGraph::new(&task_map)?;
@@ -118,12 +129,13 @@ impl Runner {
         Ok(())
     }
 
-    /// Executes the given tasks and watches the long-running ones.
+    /// Executes the given tasks and keeps running until a shutdown signal
+    /// arrives while watched tasks are active.
     ///
     /// # Errors
     ///
-    /// Returns an error if the global state cannot be initialized, a task
-    /// fails to execute, or a file watcher cannot be started.
+    /// Returns an error if the global state cannot be initialized or a task
+    /// fails to execute.
     pub async fn run(&self, tasks: &[TaskId]) -> FyrerResult<()> {
         let mut logger = Logger::new(self.task_map.len());
         let log_sender = logger.sender();
@@ -132,11 +144,12 @@ impl Runner {
         });
         global::init(self.task_graph.clone(), self.task_map.clone(), log_sender)?;
         tokio::spawn(global::await_shutdown_signal());
-        let running = executor::execute_tasks(tasks).await?;
-        tokio::select! {
-            result = watcher::watch_tasks(running) => result,
-            () = global::shutdown_notified() => Ok(()),
+        let watched = executor::execute_tasks(tasks).await?;
+        if watched.is_empty() {
+            return Ok(());
         }
+        global::shutdown_notified().await;
+        Ok(())
     }
 }
 

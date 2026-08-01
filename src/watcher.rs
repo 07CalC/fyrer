@@ -10,7 +10,7 @@ use tokio::sync::mpsc::{UnboundedReceiver, unbounded_channel};
 use crate::{
     config::RestartStrategy,
     error::{FyrerError, FyrerResult, WatcherError},
-    executor::{RunningTask, TaskProcess, start_task},
+    executor::{TaskProcess, start_task},
     global,
     logger::{LogMessage, LogType},
     tasks::{Task, TaskId},
@@ -24,24 +24,15 @@ const MATCH_OPTIONS: MatchOptions = MatchOptions {
     require_literal_leading_dot: true,
 };
 
-/// Starts a file watcher for each long-running task and then waits forever
-/// (until a shutdown signal arrives).
+/// Installs a file watcher for a task and keeps restarting its process while
+/// its inputs change. This function returns once the watcher is running; the
+/// task is then restarted in the background.
 ///
 /// # Errors
 ///
 /// Returns an error if a project root cannot be resolved or watched, or if a
 /// log message cannot be sent.
-pub async fn watch_tasks(running: Vec<RunningTask>) -> FyrerResult<()> {
-    if running.is_empty() {
-        return Ok(());
-    }
-    for entry in running {
-        setup_watch(entry.task, entry.process).await?;
-    }
-    std::future::pending().await
-}
-
-async fn setup_watch(task: Task, process: TaskProcess) -> FyrerResult<()> {
+pub async fn start_watch(task: Task, process: TaskProcess) -> FyrerResult<()> {
     if task.restart.strategy != RestartStrategy::FileChange {
         return Ok(());
     }
@@ -123,7 +114,7 @@ async fn watch_loop(
         if global::is_shutting_down() {
             return;
         }
-        match start_task(task.clone()).await {
+        match start_task(&task).await {
             Ok(next) => process = next,
             Err(error) => eprintln!("error: failed to restart {task_id}: {error}"),
         }
