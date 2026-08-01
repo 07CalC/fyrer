@@ -15,7 +15,10 @@ use crate::{
     config::RestartStrategy,
     error::{FyrerError, FyrerResult, LoggerError, TaskError},
     global,
-    logger::{LogMessage, LogType},
+    logger::{
+        LogMessage,
+        LogType::{self, System},
+    },
     tasks::{Task, TaskId},
 };
 
@@ -195,6 +198,19 @@ pub async fn start_task(task: Task) -> FyrerResult<TaskProcess> {
         .ok_or_else(|| FyrerError::Task(TaskError::MissingStderr(task_id.to_string())))?;
 
     let log_sender = global::get().log_sender.clone();
+    log_sender
+        .send(LogMessage {
+            task_id: task_id.clone(),
+            message: format!("Starting task '{}'", task_id.to_string()),
+            log_type: System,
+        })
+        .await
+        .map_err(|source| {
+            FyrerError::Logger(LoggerError::Send {
+                task: task_id.to_string(),
+                source,
+            })
+        })?;
     let stdout_reader = tokio::spawn(pipe_to_logger(
         stdout,
         task_id.clone(),
