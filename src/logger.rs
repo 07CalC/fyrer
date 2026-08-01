@@ -33,35 +33,32 @@ pub struct LogMessage {
 
 #[derive(Debug)]
 pub struct Logger {
+    /// Clones of this sender will be used to push messages to the logger.
     pub sender: Sender<LogMessage>,
-    pub receiver: Receiver<LogMessage>,
+    receiver: Receiver<LogMessage>,
 }
 
 impl Logger {
-    pub fn new(size: usize) -> Self {
-        let (sender, receiver) = mpsc::channel(size);
-        Logger { sender, receiver }
+    #[must_use]
+    pub fn new(capacity: usize) -> Self {
+        let (sender, receiver) = mpsc::channel(capacity);
+        Self { sender, receiver }
     }
 
+    #[must_use]
     pub fn sender(&self) -> Sender<LogMessage> {
         self.sender.clone()
     }
 
     pub async fn start(&mut self) {
-        while let Some(log_message) = self.receiver.recv().await {
-            let color = COLORS[log_message.task_id.hash() % COLORS.len()];
-            let task = format!("[{}]", log_message.task_id).color(color);
-            let message = match log_message.log_type {
-                LogType::Error => log_message.message.red().to_string(),
-                _ => log_message.message,
+        while let Some(message) = self.receiver.recv().await {
+            let color = COLORS[message.task_id.hash() % COLORS.len()];
+            let header = format!("[{}]", message.task_id).color(color);
+            let body = match message.log_type {
+                LogType::Error => message.message.red().to_string(),
+                _ => message.message,
             };
-            println!("{task}: {message}");
-        }
-    }
-
-    pub async fn send(&self, log_message: LogMessage) {
-        if let Err(e) = self.sender.send(log_message).await {
-            eprintln!("Logger error: {e}");
+            println!("{header}: {body}");
         }
     }
 }

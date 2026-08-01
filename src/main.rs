@@ -1,7 +1,7 @@
+//! The `fyrer` command-line entry point.
+
 use clap::{Parser, Subcommand};
-use fyrer::error::FyrerResult;
-use fyrer::global;
-use fyrer::runner::Runner;
+use fyrer::{error::FyrerResult, global, runner::Runner};
 
 #[derive(Parser)]
 #[command(
@@ -20,6 +20,7 @@ struct Cli {
 #[derive(Subcommand)]
 enum Command {
     Run {
+        /// The task to run: `project:task`, a bare `task` name, or empty for all.
         task: Option<String>,
         #[arg(long)]
         dry_run: bool,
@@ -28,23 +29,24 @@ enum Command {
 }
 
 fn main() {
-    let result = tokio::runtime::Runtime::new()
-        .expect("failed to start tokio runtime")
-        .block_on(run());
-    match result {
-        Ok(()) => {
-            if global::is_shutting_down() {
-                std::process::exit(global::shutdown_code());
+    let exit_code = match tokio::runtime::Runtime::new() {
+        Ok(runtime) => match runtime.block_on(real_main()) {
+            Ok(()) if global::is_shutting_down() => global::shutdown_code(),
+            Ok(()) => 0,
+            Err(error) => {
+                eprintln!("error: {error}");
+                1
             }
+        },
+        Err(error) => {
+            eprintln!("failed to start tokio runtime: {error}");
+            1
         }
-        Err(e) => {
-            eprintln!("error: {e}");
-            std::process::exit(1);
-        }
-    }
+    };
+    std::process::exit(exit_code);
 }
 
-async fn run() -> FyrerResult<()> {
+async fn real_main() -> FyrerResult<()> {
     let cli = Cli::parse();
     let runner = Runner::load(&cli.config)?;
     match cli.command {

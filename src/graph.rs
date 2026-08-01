@@ -1,96 +1,141 @@
+//! Dependency graph of tasks and topological ordering.
+
 use std::collections::{HashMap, HashSet, VecDeque};
 
 use crate::{
-    error::{FyrerError, FyrerResult, graph::GraphError},
-    tasks::{Task, TaskId, TaskMap},
+    error::{FyrerError, FyrerResult, GraphError},
+    tasks::{TaskId, TaskMap},
 };
 
+/// A directed acyclic graph of tasks.
 #[derive(Debug, Clone)]
 pub struct TaskGraph {
-    pub nodes: HashMap<TaskId, TaskNode>,
+    nodes: HashMap<TaskId, TaskNode>,
 }
 
+/// A node in the task graph.
 #[derive(Debug, Clone)]
-pub struct TaskNode {
-    pub id: TaskId,
-    pub task: Task,
-    pub deps: Vec<TaskId>,
-    pub dependents: Vec<TaskId>,
+struct TaskNode {
+    id: TaskId,
+    deps: Vec<TaskId>,
+    dependents: Vec<TaskId>,
+}
+
+/// Visit state used while detecting cycles with depth-first search.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum VisitState {
+    /// The node is currently on the DFS stack.
+    Visiting,
+    /// The node has been fully explored.
+    Done,
 }
 
 impl TaskGraph {
+    /// Builds a graph from a task map, resolving all `depends_on` edges.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if a task depends on itself or on a task that does
+    /// not exist.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the task map is internally inconsistent.
     pub fn new(task_map: &TaskMap) -> FyrerResult<Self> {
-        let mut graph = TaskGraph {
-            nodes: HashMap::new(),
-        };
-
-        for id in task_map.keys() {
-            graph.nodes.insert(
-                id.clone(),
-                TaskNode {
-                    id: id.clone(),
-                    task: task_map.get(id).unwrap().clone(),
-                    deps: vec![],
-                    dependents: Vec::new(),
-                },
-            );
-        }
+        let mut nodes: HashMap<TaskId, TaskNode> = task_map
+            .keys()
+            .map(|id| {
+                (
+                    id.clone(),
+                    TaskNode {
+                        id: id.clone(),
+                        deps: Vec::new(),
+                        dependents: Vec::new(),
+                    },
+                )
+            })
+            .collect();
 
         for (id, task) in task_map {
             for dep in &task.depends_on {
-                let dep_id = if let Some((proj, task_name)) = dep.split_once(':') {
-                    TaskId::new(proj, task_name)
-                } else {
-                    TaskId::new(&task.project_name, dep)
+                let dep_id = match dep.split_once(':') {
+                    Some((project, task)) => TaskId::new(project, task),
+                    None => TaskId::new(&task.project_name, dep),
                 };
 
                 if dep_id == *id {
-                    return Err(FyrerError::Graph(GraphError::SelfDependency(id.to_string())));
+                    return Err(FyrerError::Graph(GraphError::SelfDependency(
+                        id.to_string(),
+                    )));
                 }
 
-                if !graph.nodes.contains_key(&dep_id) {
+                if !nodes.contains_key(&dep_id) {
                     return Err(FyrerError::Graph(GraphError::MissingDependency {
                         dependent: id.to_string(),
                         dependency: dep_id.to_string(),
                     }));
                 }
 
-                graph.nodes.get_mut(id).unwrap().deps.push(dep_id.clone());
-                graph
-                    .nodes
+                let node = nodes.get_mut(id).expect("task id exists in the graph");
+                node.deps.push(dep_id.clone());
+
+                let dependent = nodes
                     .get_mut(&dep_id)
-                    .unwrap()
-                    .dependents
-                    .push(id.clone());
+                    .expect("dependency exists in the graph");
+                dependent.dependents.push(id.clone());
             }
         }
-        Ok(graph)
+
+        Ok(Self { nodes })
     }
 
+    /// Returns an error if the graph contains a dependency cycle.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if a cycle is detected.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the graph is internally inconsistent.
     pub fn validate(&self) -> FyrerResult<()> {
-        let mut visited = HashMap::new();
+        let mut states = HashMap::new();
         for node in self.nodes.values() {
-            if !visited.contains_key(&node.id) && self.has_cycle(&node.id, &mut visited) {
-                return Err(FyrerError::Graph(GraphError::CycleDetected(node.id.to_string())));
+            if !matches!(states.get(&node.id), Some(VisitState::Done))
+                && self.has_cycle(&node.id, &mut states)
+            {
+                return Err(FyrerError::Graph(GraphError::CycleDetected(
+                    node.id.to_string(),
+                )));
             }
         }
         Ok(())
     }
 
-    fn has_cycle(&self, node_id: &TaskId, visited: &mut HashMap<TaskId, bool>) -> bool {
-        visited.insert(node_id.clone(), true);
-        for dep in &self.nodes.get(node_id).unwrap().deps {
-            if let Some(&true) = visited.get(dep) {
-                return true;
-            }
-            if !visited.contains_key(dep) && self.has_cycle(dep, visited) {
-                return true;
-            }
+    fn has_cycle(&self, node_id: &TaskId, states: &mut HashMap<TaskId, VisitState>) -> bool {
+        match states.get(node_id) {
+            Some(VisitState::Visiting) => return true,
+            Some(VisitState::Done) => return false,
+            None => {}
         }
-        visited.insert(node_id.clone(), false);
-        false
+
+        states.insert(node_id.clone(), VisitState::Visiting);
+        let node = &self.nodes[node_id];
+        let has_cycle = node.deps.iter().any(|dep| self.has_cycle(dep, states));
+        states.insert(node_id.clone(), VisitState::Done);
+        has_cycle
     }
 
+    /// Returns the given tasks and their transitive dependencies, grouped
+    /// into topological levels that may be executed concurrently.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if any of the given tasks is not in the graph.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the graph is internally inconsistent.
     pub fn get_orders(&self, tasks: &[TaskId]) -> FyrerResult<Vec<Vec<TaskId>>> {
         for id in tasks {
             if !self.nodes.contains_key(id) {
@@ -98,55 +143,50 @@ impl TaskGraph {
             }
         }
 
+        // Collect the transitive closure of the requested tasks.
         let mut relevant = HashSet::new();
-        let mut stack: Vec<TaskId> = tasks.to_vec();
+        let mut stack = tasks.to_vec();
         while let Some(id) = stack.pop() {
             if relevant.insert(id.clone()) {
-                let node = &self.nodes[&id];
-                stack.extend(node.deps.iter().cloned());
+                stack.extend(self.nodes[&id].deps.iter().cloned());
             }
         }
 
-        let mut in_degree: HashMap<&TaskId, usize> = relevant.iter().map(|id| (id, 0)).collect();
+        // Compute the in-degree of every node in the relevant subgraph.
+        let mut in_degree = HashMap::new();
         for id in &relevant {
-            let node = self.nodes.get(id).unwrap();
-            for dep in &node.deps {
-                if relevant.contains(dep) {
-                    *in_degree.get_mut(id).unwrap() += 1;
-                }
-            }
+            let node = &self.nodes[id];
+            let degree = node
+                .deps
+                .iter()
+                .filter(|dep| relevant.contains(*dep))
+                .count();
+            in_degree.insert(id.clone(), degree);
         }
 
-        let mut queue: VecDeque<&TaskId> = in_degree
+        let mut queue: VecDeque<TaskId> = in_degree
             .iter()
-            .filter(|&(_, deg)| *deg == 0)
-            .map(|(id, _)| *id)
+            .filter(|(_, degree)| **degree == 0)
+            .map(|(id, _)| id.clone())
             .collect();
 
         let mut levels = Vec::new();
         let mut processed = HashSet::new();
 
         while !queue.is_empty() {
-            levels.push(
-                queue
-                    .iter()
-                    .map(|id| self.nodes.get(id).unwrap().id.clone())
-                    .collect(),
-            );
+            levels.push(queue.iter().cloned().collect());
 
             let mut next_queue = VecDeque::new();
             for id in &queue {
-                processed.insert((*id).clone());
-                let node = self.nodes.get(id).unwrap();
-                for dependent in &node.dependents {
+                processed.insert(id.clone());
+                for dependent in &self.nodes[id].dependents {
                     if !relevant.contains(dependent) {
                         continue;
                     }
-                    if let Some(deg) = in_degree.get_mut(dependent) {
-                        *deg -= 1;
-                        if *deg == 0 && !processed.contains(dependent) {
-                            next_queue.push_back(dependent);
-                        }
+                    let degree = in_degree.get_mut(dependent).expect("dependent is relevant");
+                    *degree -= 1;
+                    if *degree == 0 && !processed.contains(dependent) {
+                        next_queue.push_back(dependent.clone());
                     }
                 }
             }
@@ -161,12 +201,11 @@ impl TaskGraph {
 mod tests {
     use std::collections::HashMap;
 
+    use super::TaskGraph;
     use crate::{
         config::{RestartConfig, RestartStrategy},
         tasks::{Task, TaskId},
     };
-
-    use super::TaskGraph;
 
     fn task(project: &str, name: &str, deps: Vec<String>) -> (TaskId, Task) {
         let id = TaskId::new(project, name);
@@ -189,17 +228,22 @@ mod tests {
         (id, task)
     }
 
-    #[test]
-    fn test_get_orders_multi_root_dedupes_shared_deps() {
+    fn graph_with(entries: &[(&str, &str, Vec<String>)]) -> TaskGraph {
         let mut map = HashMap::new();
-        let (id, t) = task("web", "build", vec!["ui:build".into()]);
-        map.insert(id, t);
-        let (id, t) = task("web", "test", vec!["ui:build".into()]);
-        map.insert(id, t);
-        let (id, t) = task("ui", "build", vec![]);
-        map.insert(id, t);
+        for (project, name, deps) in entries {
+            let (id, task) = task(project, name, deps.clone());
+            map.insert(id, task);
+        }
+        TaskGraph::new(&map).unwrap()
+    }
 
-        let graph = TaskGraph::new(&map).unwrap();
+    #[test]
+    fn get_orders_dedupes_shared_dependencies() {
+        let graph = graph_with(&[
+            ("web", "build", vec!["ui:build".into()]),
+            ("web", "test", vec!["ui:build".into()]),
+            ("ui", "build", vec![]),
+        ]);
         graph.validate().unwrap();
 
         let order = graph
@@ -208,19 +252,41 @@ mod tests {
 
         assert_eq!(order.len(), 2);
         assert_eq!(order[0], vec![TaskId::new("ui", "build")]);
-        let second: Vec<String> = order[1].iter().map(|id| id.to_string()).collect();
+        let second: Vec<String> = order[1].iter().map(ToString::to_string).collect();
         assert!(second.contains(&"web:build".to_string()));
         assert!(second.contains(&"web:test".to_string()));
     }
 
     #[test]
-    fn test_get_orders_unknown_task() {
-        let mut map = HashMap::new();
-        let (id, t) = task("web", "build", vec![]);
-        map.insert(id, t);
-
-        let graph = TaskGraph::new(&map).unwrap();
-
+    fn get_orders_rejects_unknown_tasks() {
+        let graph = graph_with(&[("web", "build", vec![])]);
         assert!(graph.get_orders(&[TaskId::new("nope", "nope")]).is_err());
+    }
+
+    #[test]
+    fn validate_rejects_cycles() {
+        let graph = graph_with(&[
+            ("web", "build", vec!["web:test".into()]),
+            ("web", "test", vec!["web:build".into()]),
+        ]);
+        assert!(graph.validate().is_err());
+    }
+
+    #[test]
+    fn validate_accepts_diamond_dependency() {
+        let graph = graph_with(&[
+            ("web", "build", vec!["ui:build".into()]),
+            ("web", "test", vec!["ui:build".into()]),
+            ("ui", "build", vec![]),
+        ]);
+        assert!(graph.validate().is_ok());
+    }
+
+    #[test]
+    fn new_rejects_self_dependency() {
+        let mut map = HashMap::new();
+        let (id, task) = task("web", "build", vec!["web:build".into()]);
+        map.insert(id, task);
+        assert!(TaskGraph::new(&map).is_err());
     }
 }

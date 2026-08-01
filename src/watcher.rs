@@ -1,5 +1,7 @@
-use std::path::{Path, PathBuf};
-use std::time::Duration;
+use std::{
+    path::{Path, PathBuf},
+    time::Duration,
+};
 
 use glob::MatchOptions;
 use notify::{Event, RecursiveMode, Watcher};
@@ -7,8 +9,8 @@ use tokio::sync::mpsc::{UnboundedReceiver, unbounded_channel};
 
 use crate::{
     config::RestartStrategy,
-    error::{FyrerError, FyrerResult, watch::WatcherError},
-    executor::{TaskProcess, start_task},
+    error::{FyrerError, FyrerResult, WatcherError},
+    executor::{RunningTask, TaskProcess, start_task},
     global,
     logger::{LogMessage, LogType},
     tasks::{Task, TaskId},
@@ -22,12 +24,19 @@ const MATCH_OPTIONS: MatchOptions = MatchOptions {
     require_literal_leading_dot: true,
 };
 
-pub async fn watch_tasks(running: Vec<(Task, TaskProcess)>) -> FyrerResult<()> {
+/// Starts a file watcher for each long-running task and then waits forever
+/// (until a shutdown signal arrives).
+///
+/// # Errors
+///
+/// Returns an error if a project root cannot be resolved or watched, or if a
+/// log message cannot be sent.
+pub async fn watch_tasks(running: Vec<RunningTask>) -> FyrerResult<()> {
     if running.is_empty() {
         return Ok(());
     }
-    for (task, process) in running {
-        setup_watch(task, process).await?;
+    for entry in running {
+        setup_watch(entry.task, entry.process).await?;
     }
     std::future::pending().await
 }
@@ -36,10 +45,10 @@ async fn setup_watch(task: Task, process: TaskProcess) -> FyrerResult<()> {
     if task.restart.strategy != RestartStrategy::FileChange {
         return Ok(());
     }
-    let root = std::path::absolute(&task.project_root).map_err(|e| {
+    let root = std::path::absolute(&task.project_root).map_err(|source| {
         FyrerError::Watch(WatcherError::ResolveRoot {
             path: task.project_root.display().to_string(),
-            source: e,
+            source,
         })
     })?;
     if !root.is_dir() {
@@ -50,15 +59,15 @@ async fn setup_watch(task: Task, process: TaskProcess) -> FyrerResult<()> {
 
     let matcher = TaskMatcher::new(&task, &root);
     let (sender, receiver) = unbounded_channel();
-    let mut watcher = notify::recommended_watcher(move |res: notify::Result<Event>| {
-        if let Ok(event) = res {
+    let mut watcher = notify::recommended_watcher(move |result: notify::Result<Event>| {
+        if let Ok(event) = result {
             let _ = sender.send(event);
         }
     })
-    .map_err(|e| FyrerError::Watch(WatcherError::Init(e)))?;
+    .map_err(WatcherError::Init)?;
     watcher
         .watch(&root, RecursiveMode::Recursive)
-        .map_err(|e| FyrerError::Watch(WatcherError::Init(e)))?;
+        .map_err(WatcherError::Init)?;
 
     let task_id = TaskId::new(&task.project_name, &task.task_name);
     global::get()
@@ -69,7 +78,7 @@ async fn setup_watch(task: Task, process: TaskProcess) -> FyrerResult<()> {
             log_type: LogType::System,
         })
         .await
-        .map_err(|e| FyrerError::Watch(WatcherError::LogSend(e)))?;
+        .map_err(WatcherError::LogSend)?;
     tokio::spawn(watch_loop(task, matcher, watcher, receiver, process));
     Ok(())
 }
@@ -92,13 +101,12 @@ async fn watch_loop(
             continue;
         }
 
+        // Debounce: keep draining events until no change arrives for
+        // `debounce`, so a burst of changes triggers a single restart.
         loop {
             tokio::select! {
-                _ = tokio::time::sleep(debounce) => break,
-                Some(next) = events.recv() => {
-                    if matcher.matches(&next) {
-                    }
-                }
+                () = tokio::time::sleep(debounce) => break,
+                Some(_) = events.recv() => {}
             }
         }
 
@@ -117,7 +125,7 @@ async fn watch_loop(
         }
         match start_task(task.clone()).await {
             Ok(next) => process = next,
-            Err(e) => eprintln!("error: failed to restart {task_id}: {e}"),
+            Err(error) => eprintln!("error: failed to restart {task_id}: {error}"),
         }
     }
 }
@@ -130,19 +138,17 @@ struct TaskMatcher {
 
 impl TaskMatcher {
     fn new(task: &Task, root: &Path) -> Self {
-        let inputs = task
-            .inputs
-            .iter()
-            .filter_map(|pattern| glob::Pattern::new(pattern).ok())
-            .collect();
-        let ignore = task
-            .ignore
-            .iter()
-            .filter_map(|pattern| glob::Pattern::new(pattern).ok())
-            .collect();
-        TaskMatcher {
-            inputs,
-            ignore,
+        Self {
+            inputs: task
+                .inputs
+                .iter()
+                .filter_map(|pattern| glob::Pattern::new(pattern).ok())
+                .collect(),
+            ignore: task
+                .ignore
+                .iter()
+                .filter_map(|pattern| glob::Pattern::new(pattern).ok())
+                .collect(),
             root: std::path::absolute(root).unwrap_or_else(|_| root.to_path_buf()),
         }
     }
@@ -155,10 +161,11 @@ impl TaskMatcher {
     }
 
     fn is_relevant(&self, path: &Path) -> bool {
-        let path = std::path::absolute(path).unwrap_or_else(|_| path.to_path_buf());
-        let relative = match path.strip_prefix(&self.root) {
-            Ok(relative) => relative,
-            Err(_) => return false,
+        let Ok(path) = std::path::absolute(path) else {
+            return false;
+        };
+        let Ok(relative) = path.strip_prefix(&self.root) else {
+            return false;
         };
         let is_input = self
             .inputs
@@ -174,15 +181,16 @@ impl TaskMatcher {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashMap;
+    use std::path::{Path, PathBuf};
+
+    use notify::{Event, EventKind, event::ModifyKind};
+
     use super::TaskMatcher;
     use crate::{
         config::{RestartConfig, RestartStrategy},
         tasks::Task,
     };
-    use notify::event::ModifyKind;
-    use notify::{Event, EventKind};
-    use std::collections::HashMap;
-    use std::path::{Path, PathBuf};
 
     fn task_with(root: &str, inputs: &[&str], ignore: &[&str]) -> Task {
         Task {
@@ -192,9 +200,9 @@ mod tests {
             task_name: "dev".to_string(),
             cmd: "echo hi".to_string(),
             depends_on: vec![],
-            inputs: inputs.iter().map(|s| s.to_string()).collect(),
+            inputs: inputs.iter().map(ToString::to_string).collect(),
             outputs: vec![],
-            ignore: ignore.iter().map(|s| s.to_string()).collect(),
+            ignore: ignore.iter().map(ToString::to_string).collect(),
             cache: false,
             restart: RestartConfig {
                 strategy: RestartStrategy::FileChange,
@@ -211,7 +219,7 @@ mod tests {
     }
 
     #[test]
-    fn test_matches_relevant_and_ignored_paths() {
+    fn matches_relevant_and_ignored_paths() {
         let matcher = TaskMatcher::new(
             &task_with(
                 ".",
@@ -231,14 +239,14 @@ mod tests {
     }
 
     #[test]
-    fn test_ignore_overrides_input() {
+    fn ignore_overrides_input() {
         let matcher = TaskMatcher::new(&task_with(".", &["**/*"], &["*.log"]), Path::new("."));
         assert!(matcher.matches(&modify_event(PathBuf::from("anything.txt"))));
         assert!(!matcher.matches(&modify_event(PathBuf::from("server.log"))));
     }
 
     #[test]
-    fn test_ignores_non_modifying_events() {
+    fn ignores_non_modifying_events() {
         let matcher = TaskMatcher::new(&task_with(".", &["**/*"], &[]), Path::new("."));
         let access = Event::new(EventKind::Access(notify::event::AccessKind::Any))
             .add_path(PathBuf::from("src/main.rs"));
@@ -246,13 +254,13 @@ mod tests {
     }
 
     #[test]
-    fn test_path_outside_root_is_irrelevant() {
+    fn path_outside_root_is_irrelevant() {
         let matcher = TaskMatcher::new(&task_with(".", &["**/*"], &[]), Path::new("."));
         assert!(!matcher.matches(&modify_event(PathBuf::from("/etc/hosts"))));
     }
 
     #[test]
-    fn test_glob_star_does_not_cross_directories() {
+    fn glob_star_does_not_cross_directories() {
         let matcher = TaskMatcher::new(&task_with(".", &["*.rs"], &[]), Path::new("."));
         assert!(matcher.matches(&modify_event(PathBuf::from("main.rs"))));
         assert!(!matcher.matches(&modify_event(PathBuf::from("src/main.rs"))));
