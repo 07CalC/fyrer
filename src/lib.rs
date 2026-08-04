@@ -18,10 +18,10 @@
 pub mod app;
 pub mod cli;
 pub mod config;
+pub mod coordinator;
 pub mod env;
 pub mod error;
 pub mod events;
-pub mod global;
 pub mod graph;
 pub mod logger;
 pub mod scheduler;

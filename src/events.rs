@@ -1,4 +1,5 @@
 use crossterm::event::KeyEvent;
+use tokio::sync::mpsc::Sender;
 
 use crate::TaskId;
 
@@ -24,6 +25,10 @@ pub enum AppEvent {
         task_id: TaskId,
     },
     KeyPress(KeyEvent),
+    TaskSpawned {
+        task_id: TaskId,
+        command_sender: Sender<TaskCommand>,
+    },
     Tick,
 }
 

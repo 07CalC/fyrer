@@ -9,8 +9,10 @@ use serde::{Deserialize, Serialize};
 use crate::{
     env::{EnvMap, get_task_env_var, merge},
     error::{ConfigError, FyrerError, FyrerResult},
-    tasks::{Task, TaskId, TaskMap},
+    tasks::{Task, TaskId},
 };
+
+pub type TaskMap = HashMap<TaskId, Task>;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -239,11 +241,11 @@ impl FyrerConfig {
     }
 }
 
-trait TaskResolver {
+pub trait TaskResolver {
     fn resolve(&self, spec: Option<&str>) -> Result<Vec<TaskId>>;
 }
 
-impl TaskResolver for TaskMap {
+impl TaskResolver for HashMap<TaskId, Task> {
     fn resolve(&self, spec: Option<&str>) -> Result<Vec<TaskId>> {
         match spec {
             None => {

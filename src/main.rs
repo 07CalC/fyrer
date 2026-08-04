@@ -1,7 +1,7 @@
 use anyhow::{Result, anyhow};
 use clap::{Parser, Subcommand};
 use color_eyre::eyre::Context;
-use fyrer::{Task, app::App, cli::Cli, error::FyrerResult, global, logger::LogMessage};
+use fyrer::{Task, app::App, cli::Cli, error::FyrerResult, logger::LogMessage};
 // fn main() { let exit_code = match tokio::runtime::Runtime::new() {
 //         Ok(runtime) => match runtime.block_on(real_main()) {
 //             Ok(()) if global::is_shutting_down() => global::shutdown_code(),
@@ -38,6 +38,6 @@ use fyrer::{Task, app::App, cli::Cli, error::FyrerResult, global, logger::LogMes
 async fn main() -> Result<()> {
     let cli = Cli::parse();
     let mut app = App::init(&cli.config)?;
-    app.start(cli.command)?;
+    app.start(cli.command).await?;
     Ok(())
 }

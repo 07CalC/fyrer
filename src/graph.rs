@@ -3,8 +3,9 @@
 use std::collections::{HashMap, HashSet, VecDeque};
 
 use crate::{
+    config::TaskMap,
     error::{FyrerError, FyrerResult, GraphError},
-    tasks::{TaskId, TaskMap},
+    tasks::TaskId,
 };
 
 /// A directed acyclic graph of tasks.
