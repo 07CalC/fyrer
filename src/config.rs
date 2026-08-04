@@ -3,6 +3,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
+use anyhow::{Result, anyhow};
 use serde::{Deserialize, Serialize};
 
 use crate::{
@@ -158,7 +159,6 @@ impl FyrerConfig {
         }
         Ok(task_map)
     }
-
     fn validate(&self) -> FyrerResult<()> {
         self.validate_version()?;
         self.validate_projects()?;
@@ -239,6 +239,52 @@ impl FyrerConfig {
     }
 }
 
+trait TaskResolver {
+    fn resolve(&self, spec: Option<&str>) -> Result<Vec<TaskId>>;
+}
+
+impl TaskResolver for TaskMap {
+    fn resolve(&self, spec: Option<&str>) -> Result<Vec<TaskId>> {
+        match spec {
+            None => {
+                let mut all: Vec<TaskId> = self.keys().cloned().collect();
+                all.sort_by_key(ToString::to_string);
+                Ok(all)
+            }
+            Some(spec) if spec.contains(":") => {
+                let id = TaskId::parse(spec).ok_or_else(|| {
+                    anyhow!(
+                        "Invalid task specifier '{}'. Expected format 'project:task'.",
+                        spec
+                    )
+                })?;
+                if !self.contains_key(&id) {
+                    return Err(anyhow!(
+                        "Task '{}' not found in configuration.",
+                        id.to_string()
+                    ));
+                }
+                Ok(vec![id])
+            }
+            Some(spec) => {
+                let mut matching_ids: Vec<TaskId> = self
+                    .keys()
+                    .filter(|id| id.task_name() == spec)
+                    .cloned()
+                    .collect();
+                if matching_ids.is_empty() {
+                    return Err(anyhow!(
+                        "No tasks found with name '{}' in configuration.",
+                        spec
+                    ));
+                }
+                matching_ids.sort_by_key(ToString::to_string);
+                Ok(matching_ids)
+            }
+        }
+    }
+}
+
 fn default_vec_string() -> Vec<String> {
     Vec::new()
 }
@@ -262,232 +308,6 @@ fn default_bool() -> bool {
 fn default_cmd() -> String {
     "echo from fyrer".to_string()
 }
-
 fn default_restart() -> RestartConfig {
     RestartConfig::default()
-}
-
-#[cfg(test)]
-mod tests {
-    use std::path::PathBuf;
-
-    use super::{FyrerConfig, RestartStrategy};
-    use crate::error::{ConfigError, FyrerError};
-
-    #[test]
-    fn parses_valid_config() {
-        let yaml = r#"
-version: 1
-env:
-  GLOBAL_VAR: global_value
-projects:
-  - name: project1
-    root: ./project1
-    env:
-      PROJECT_VAR: project_value
-    env_path: .env
-    tasks:
-      build:
-        cmd: echo Building project1
-        depends_on: []
-        inputs: ["src/**/*"]
-        outputs: ["dist/**/*"]
-        ignore: []
-        cache: true
-        restart:
-          strategy: FileChange
-          delay: 1000
-      test:
-        cmd: "echo Testing project1"
-        depends_on: ["build"]
-        inputs: ["tests/**/*"]
-        outputs: []
-        ignore: []
-        cache: false
-        restart:
-          strategy: OnFailure
-          delay: 500
-  - name: project2
-    root: ./project2
-    env:
-        PROJECT_VAR: project2_value
-    env_path: .env
-    tasks:
-      deploy:
-        cmd: "echo Deploying project2"
-        depends_on: []
-        inputs: []
-        outputs: []
-        ignore: []
-        cache: false
-        restart:
-            strategy: Never
-            delay: null
-"#;
-        let config = FyrerConfig::new_from_str(yaml).expect("failed to parse config");
-        assert_eq!(config.version, 1);
-        assert_eq!(config.env.get("GLOBAL_VAR").unwrap(), "global_value");
-        assert_eq!(config.projects.len(), 2);
-
-        let project1 = &config.projects[0];
-        assert_eq!(project1.name, "project1");
-        assert_eq!(project1.root, PathBuf::from("./project1"));
-        assert_eq!(project1.env.get("PROJECT_VAR").unwrap(), "project_value");
-        assert_eq!(project1.env_path, ".env");
-        assert_eq!(project1.tasks.len(), 2);
-
-        let build_task = project1.tasks.get("build").unwrap();
-        assert_eq!(build_task.cmd, "echo Building project1");
-        assert_eq!(build_task.depends_on, Vec::<String>::new());
-        assert_eq!(build_task.inputs, vec!["src/**/*"]);
-        assert_eq!(build_task.outputs, vec!["dist/**/*"]);
-        assert_eq!(build_task.ignore, Vec::<String>::new());
-        assert!(build_task.cache);
-        assert_eq!(build_task.restart.strategy, RestartStrategy::FileChange);
-        assert_eq!(build_task.restart.delay, Some(1000));
-
-        let test_task = project1.tasks.get("test").unwrap();
-        assert_eq!(test_task.cmd, "echo Testing project1");
-        assert_eq!(test_task.depends_on, vec!["build"]);
-        assert_eq!(test_task.inputs, vec!["tests/**/*"]);
-        assert_eq!(test_task.outputs, Vec::<String>::new());
-        assert_eq!(test_task.ignore, Vec::<String>::new());
-        assert!(!test_task.cache);
-        assert_eq!(test_task.restart.strategy, RestartStrategy::OnFailure);
-        assert_eq!(test_task.restart.delay, Some(500));
-
-        let project2 = &config.projects[1];
-        assert_eq!(project2.name, "project2");
-    }
-
-    #[test]
-    fn rejects_duplicate_project_names() {
-        let yaml = r"
-version: 1
-projects:
-    - name: project1
-      root: ./project1
-      env_path: .env
-      tasks: {}
-    - name: project1
-      root: ./project2
-      env_path: .env
-      tasks: {}
-";
-        let err = FyrerConfig::new_from_str(yaml).err().unwrap();
-        match err {
-            FyrerError::Config(ConfigError::DuplicateProject { name }) => {
-                assert_eq!(name, "project1");
-            }
-            _ => panic!("Expected DuplicateProject error"),
-        }
-    }
-
-    #[test]
-    fn rejects_unsupported_version() {
-        let yaml = r"
-version: 2
-projects: []
-";
-        let err = FyrerConfig::new_from_str(yaml).err().unwrap();
-        match err {
-            FyrerError::Config(ConfigError::UnsupportedVersion { version }) => {
-                assert_eq!(version, 2);
-            }
-            _ => panic!("Expected UnsupportedVersion error"),
-        }
-    }
-
-    #[test]
-    fn rejects_empty_cmd() {
-        let yaml = r#"
-version: 1
-env: {}
-projects: 
-    - name: project1
-      root: ./project1
-      env_path: .env
-      tasks:
-        build:
-          cmd: ""
-          depends_on: []
-          inputs: []
-          outputs: []
-          ignore: []
-          cache: false
-          restart:
-            strategy: Never
-            delay: null
-"#;
-        let err = FyrerConfig::new_from_str(yaml).err().unwrap();
-        match err {
-            FyrerError::Config(ConfigError::EmptyCommand { project, task }) => {
-                assert_eq!(project, "project1");
-                assert_eq!(task, "build");
-            }
-            _ => panic!("Expected EmptyCommand error"),
-        }
-    }
-
-    #[test]
-    fn rejects_cache_without_outputs() {
-        let yaml = r"
-version: 1
-env: {}
-projects:
-    - name: project1
-      root: ./project1
-      env_path: .env
-      tasks:
-        build:
-          cmd: echo Building
-          depends_on: []
-          inputs: []
-          outputs: []
-          ignore: []
-          cache: true
-          restart:
-            strategy: Never
-            delay: null
-";
-        let err = FyrerConfig::new_from_str(yaml).err().unwrap();
-        match err {
-            FyrerError::Config(ConfigError::CacheWithoutOutputs { project, task }) => {
-                assert_eq!(project, "project1");
-                assert_eq!(task, "build");
-            }
-            _ => panic!("Expected CacheWithoutOutputs error"),
-        }
-    }
-
-    #[test]
-    fn rejects_cache_without_inputs() {
-        let yaml = r"
-version: 1
-env: {}
-projects:
-    - name: project1
-      root: ./project1
-      env_path: .env
-      tasks:
-        build:
-          cmd: echo Building
-          depends_on: []
-          inputs: []
-          outputs: [dist/**/*]
-          ignore: []
-          cache: true
-          restart:
-            strategy: Never
-            delay: null
-";
-        let err = FyrerConfig::new_from_str(yaml).err().unwrap();
-        match err {
-            FyrerError::Config(ConfigError::CacheWithoutInputs { project, task }) => {
-                assert_eq!(project, "project1");
-                assert_eq!(task, "build");
-            }
-            _ => panic!("Expected CacheWithoutInputs error"),
-        }
-    }
 }

@@ -15,17 +15,18 @@
 //! assert_eq!(id.to_string(), "web:build");
 //! ```
 
-pub mod cache;
+pub mod app;
+pub mod cli;
 pub mod config;
 pub mod env;
 pub mod error;
-pub mod executor;
+pub mod events;
 pub mod global;
 pub mod graph;
 pub mod logger;
-pub mod runner;
+pub mod scheduler;
 pub mod tasks;
-pub mod watcher;
+pub mod tui;
 
 pub use config::FyrerConfig;
 pub use error::{FyrerError, FyrerResult};

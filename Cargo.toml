@@ -11,11 +11,15 @@ keywords = ["monorepo", "task-runner", "dev-server", "concurrency", "cli"]
 categories = ["command-line-utilities", "development-tools"]
 
 [dependencies]
+anyhow = "1.0.104"
 clap = { version = "4.5", features = ["derive"] }
+color-eyre = "0.6.5"
 colored = "3.1.1"
+crossterm = "0.29.0"
 glob = "0.3.4"
 libc = "0.2"
 notify = "8.2.0"
+ratatui = "0.30.2"
 serde = { version = "1.0", features = ["derive"] }
 serde_yaml = "0.9"
 thiserror = "1.0"
