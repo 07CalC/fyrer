@@ -6,10 +6,10 @@ use ratatui::{
     Terminal,
     backend::CrosstermBackend,
     layout::{Constraint, Layout},
-    style::{Color, Modifier, Style},
+    style::{Color, Modifier, Style, Stylize},
     text::{Line, Span, Text},
     widgets::{
-        Block, List, ListItem, ListState, Paragraph, Scrollbar, ScrollbarOrientation,
+        Block, Borders, List, ListItem, ListState, Paragraph, Scrollbar, ScrollbarOrientation,
         ScrollbarState, Wrap,
     },
 };
@@ -113,7 +113,7 @@ impl Ui for Tui {
     fn push_log(&mut self, task_id: &TaskId, line: String, stream: LogStream) {
         let formatted = match stream {
             LogStream::Stdout => line,
-            LogStream::Stderr => format!("⚠ {line}"),
+            LogStream::Stderr => format!("\x1b[31m⚠ {line}\x1b[0m"),
         };
         self.logs
             .entry(task_id.clone())
@@ -355,10 +355,16 @@ impl Tui {
                 self.viewport = usize::from(log_area.height);
 
                 // Fill background to clear stale characters.
-                f.render_widget(Block::default().style(Style::default().bg(log_bg)), right);
+                // f.render_widget(
+                //     Block::default()
+                //         .style(Style::default().bg(log_bg))
+                //         .borders(Borders::default()),
+                //     right,
+                // );
 
                 let paragraph = Paragraph::new(text.clone())
                     .style(Style::default().bg(log_bg))
+                    .block(Block::bordered().title("Logs").bg(log_bg))
                     .scroll((u16::try_from(scroll_pos).unwrap_or(u16::MAX), 0))
                     .wrap(Wrap { trim: false });
                 f.render_widget(paragraph, log_area);
@@ -437,11 +443,10 @@ pub struct PlainUi;
 
 impl Ui for PlainUi {
     fn push_log(&mut self, task_id: &TaskId, line: String, stream: LogStream) {
-        let prefix = match stream {
-            LogStream::Stdout => "",
-            LogStream::Stderr => "⚠ ",
-        };
-        println!("[{task_id}] {prefix}{line}");
+        match stream {
+            LogStream::Stdout => println!("[{task_id}] {line}"),
+            LogStream::Stderr => println!("[{task_id}] \x1b[31m⚠ {line}\x1b[0m"),
+        }
     }
 
     fn render(&mut self, _tasks: &[(TaskId, TaskStatus)]) -> Result<()> {

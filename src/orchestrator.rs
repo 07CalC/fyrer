@@ -158,6 +158,7 @@ impl Orchestrator {
                         for (_, tx) in self.running.drain() {
                             let _ = tx.send(TaskCommand::Kill).await;
                         }
+                        while !self.running.is_empty() {}
                         self.should_quit = true;
                     }
                     KeyCode::Char('j') | KeyCode::Down => self.ui.navigate_next(),
