@@ -14,6 +14,7 @@ use ratatui::{
     },
 };
 
+use crate::events::LogStream;
 use crate::tasks::TaskId;
 
 use super::tasks::TaskStatus;
@@ -23,17 +24,17 @@ use super::tasks::TaskStatus;
 /// orchestrator, making it possible to swap in alternative backends (e.g. a
 /// plain, non-interactive output) without touching orchestration logic.
 pub trait Ui {
+    /// Pushes a new log line for the given task. Each backend stores or
+    /// displays the line however it sees fit.
+    fn push_log(&mut self, task_id: &TaskId, line: String, stream: LogStream);
+
     /// Redraws the current task snapshot. Called by the orchestrator after
     /// every event so the UI always reflects the latest state.
     ///
     /// # Errors
     ///
     /// Returns an error if the backend fails to draw to the terminal.
-    fn render(
-        &mut self,
-        tasks: &[(TaskId, TaskStatus)],
-        logs: &HashMap<TaskId, Vec<String>>,
-    ) -> Result<()>;
+    fn render(&mut self, tasks: &[(TaskId, TaskStatus)]) -> Result<()>;
 
     /// Moves the selection highlight to the next item, if applicable.
     fn navigate_next(&mut self) {}
@@ -58,10 +59,27 @@ pub trait Ui {
 
 type DefaultBackend = CrosstermBackend<std::io::Stdout>;
 
+/// Cached ANSI-parsed text for a single task's logs, rebuilt only when new
+/// lines arrive or the viewport width changes.
+struct LogCache {
+    /// The parsed ratatui [`Text`], ready to render.
+    text: Text<'static>,
+    /// Number of raw lines that were parsed to produce `text`.
+    parsed_len: usize,
+    /// Viewport width used when computing `wrapped_height`.
+    viewport_width: usize,
+    /// Total visual (wrapped) row count.
+    wrapped_height: usize,
+}
+
 /// A full-screen, interactive terminal UI built on ratatui.
 pub struct Tui {
     terminal: Terminal<DefaultBackend>,
     list_state: ListState,
+    /// Raw log lines per task, pushed via [`Ui::push_log`].
+    logs: HashMap<TaskId, Vec<String>>,
+    /// Cached parsed text per task; invalidated when new lines arrive.
+    cache: HashMap<TaskId, LogCache>,
     /// Scroll offset from the top of the selected task's log, per task index.
     positions: HashMap<usize, usize>,
     /// Whether the log view follows the newest output, per task index.
@@ -78,13 +96,12 @@ impl Tui {
     /// Returns an error if the terminal cannot be put into raw mode.
     pub fn new() -> Result<Self> {
         let terminal = ratatui::try_init()?;
-        crossterm::execute!(
-            std::io::stdout(),
-            crossterm::event::EnableMouseCapture
-        )?;
+        crossterm::execute!(std::io::stdout(), crossterm::event::EnableMouseCapture)?;
         Ok(Self {
             terminal,
             list_state: ListState::default().with_selected(Some(0)),
+            logs: HashMap::new(),
+            cache: HashMap::new(),
             positions: HashMap::new(),
             following: HashMap::new(),
             viewport: 0,
@@ -93,26 +110,29 @@ impl Tui {
 }
 
 impl Ui for Tui {
-    fn render(
-        &mut self,
-        tasks: &[(TaskId, TaskStatus)],
-        logs: &HashMap<TaskId, Vec<String>>,
-    ) -> Result<()> {
+    fn push_log(&mut self, task_id: &TaskId, line: String, stream: LogStream) {
+        let formatted = match stream {
+            LogStream::Stdout => line,
+            LogStream::Stderr => format!("⚠ {line}"),
+        };
+        self.logs
+            .entry(task_id.clone())
+            .or_default()
+            .push(formatted);
+    }
+
+    fn render(&mut self, tasks: &[(TaskId, TaskStatus)]) -> Result<()> {
         for (idx, _) in tasks.iter().enumerate() {
             self.positions.entry(idx).or_insert(0);
             self.following.entry(idx).or_insert(true);
         }
         let selected_idx = self.list_state.selected().unwrap_or(0);
-        let selected_logs = tasks
-            .get(selected_idx)
-            .and_then(|(id, _)| logs.get(id))
-            .cloned()
-            .unwrap_or_default();
+        let selected_task_id = tasks.get(selected_idx).map(|(id, _)| id);
         let snapshot: Vec<(String, TaskStatus)> = tasks
             .iter()
             .map(|(id, status)| (id.to_string(), status.clone()))
             .collect();
-        self.render_layout(&snapshot, &selected_logs)?;
+        self.render_layout(&snapshot, selected_task_id)?;
         Ok(())
     }
 
@@ -127,10 +147,7 @@ impl Ui for Tui {
     }
 
     fn shutdown(&mut self) -> Result<()> {
-        crossterm::execute!(
-            std::io::stdout(),
-            crossterm::event::DisableMouseCapture
-        )?;
+        crossterm::execute!(std::io::stdout(), crossterm::event::DisableMouseCapture)?;
         ratatui::restore();
         Ok(())
     }
@@ -192,18 +209,66 @@ impl Tui {
             .sum()
     }
 
-    /// Parse each log line individually via `ansi_to_tui` and concatenate the
-    /// results. This avoids cross-line ANSI breakage and gracefully handles
-    /// malformed sequences.
-    fn parse_logs(logs: &[String]) -> Text<'static> {
-        let mut lines: Vec<Line<'static>> = Vec::with_capacity(logs.len());
-        for raw in logs {
-            match raw.as_str().into_text() {
-                Ok(parsed) => lines.extend(parsed.lines),
-                Err(_) => lines.push(Line::raw(raw.clone())),
+    /// Returns the cached parsed [`Text`] and its wrapped height for the given
+    /// task, re-parsing only when new lines have been pushed or the viewport
+    /// width has changed.
+    fn get_or_parse(
+        cache: &mut HashMap<TaskId, LogCache>,
+        logs: &HashMap<TaskId, Vec<String>>,
+        task_id: &TaskId,
+        viewport_width: usize,
+    ) -> (Text<'static>, usize) {
+        let lines = logs.get(task_id).map_or(&[][..], Vec::as_slice);
+        let current_len = lines.len();
+
+        if let Some(cached) = cache.get(task_id)
+            && cached.parsed_len == current_len
+            && cached.viewport_width == viewport_width
+        {
+            return (cached.text.clone(), cached.wrapped_height);
+        }
+
+        // Re-parse: join all lines and parse as a single ANSI stream so that
+        // colour state carries across line boundaries.
+        let joined = lines.join("\n");
+        let mut text = joined
+            .as_str()
+            .into_text()
+            .unwrap_or_else(|_| Text::raw(joined));
+
+        // Strip `Color::Reset` backgrounds so spans inherit the paragraph's
+        // dark background instead of punching through to the terminal default.
+        // Explicit ANSI background colours are left untouched.
+        Self::strip_reset_bg(&mut text);
+
+        let wrapped_height = Self::wrapped_line_count(&text, viewport_width);
+
+        cache.insert(
+            task_id.clone(),
+            LogCache {
+                text: text.clone(),
+                parsed_len: current_len,
+                viewport_width,
+                wrapped_height,
+            },
+        );
+        (text, wrapped_height)
+    }
+
+    /// Replaces `Color::Reset` backgrounds with `None` so the span inherits
+    /// the parent widget's background style. Specific colours set by ANSI
+    /// escape codes are kept as-is.
+    fn strip_reset_bg(text: &mut Text<'_>) {
+        for line in &mut text.lines {
+            if line.style.bg == Some(Color::Reset) {
+                line.style.bg = None;
+            }
+            for span in &mut line.spans {
+                if span.style.bg == Some(Color::Reset) {
+                    span.style.bg = None;
+                }
             }
         }
-        Text::from(lines)
     }
 
     /// Draws the task list and the selected task's logs.
@@ -211,14 +276,46 @@ impl Tui {
     /// # Errors
     ///
     /// Returns an error if the terminal fails to draw.
-    #[allow(clippy::cast_possible_truncation)]
-    pub fn render_layout(&mut self, tasks: &[(String, TaskStatus)], logs: &[String]) -> Result<()> {
+    #[allow(clippy::cast_possible_truncation, clippy::too_many_lines)]
+    pub fn render_layout(
+        &mut self,
+        tasks: &[(String, TaskStatus)],
+        selected_task_id: Option<&TaskId>,
+    ) -> Result<()> {
+        // Pre-compute the parsed text outside the draw closure so we don't
+        // need to borrow `self` inside the closure (which also borrows
+        // `self.terminal`).
+        let viewport_width_estimate = self
+            .terminal
+            .size()
+            .map_or(80, |s| usize::from(s.width.saturating_sub(26)));
+
+        let (text, total_wrapped) = if let Some(tid) = selected_task_id {
+            Self::get_or_parse(&mut self.cache, &self.logs, tid, viewport_width_estimate)
+        } else {
+            (Text::default(), 0)
+        };
+
+        let selected_idx = self.list_state.selected().unwrap_or(0);
+
+        // Clamp / follow scroll position.
+        let max_offset = total_wrapped.saturating_sub(self.viewport.max(1));
+        let pos = self.positions.entry(selected_idx).or_insert(0);
+        if *self.following.entry(selected_idx).or_insert(true) {
+            *pos = max_offset;
+        } else {
+            *pos = (*pos).min(max_offset);
+            if *pos >= max_offset {
+                self.following.insert(selected_idx, true);
+            }
+        }
+        let scroll_pos = *pos;
+
         self.terminal
             .draw(|f| {
                 // ── Top-level layout: main area + 1-row keybinds bar ──
                 let [main_area, footer_area] =
-                    Layout::vertical([Constraint::Min(0), Constraint::Length(1)])
-                        .areas(f.area());
+                    Layout::vertical([Constraint::Min(0), Constraint::Length(1)]).areas(f.area());
 
                 let [left, right] =
                     Layout::horizontal([Constraint::Length(25), Constraint::Min(0)])
@@ -244,78 +341,88 @@ impl Tui {
 
                 let list = List::new(items)
                     .block(Block::bordered().title("Tasks"))
-                    .highlight_style(
-                        Style::default()
-                            .bg(Color::White)
-                            .fg(Color::Black),
-                    )
+                    .highlight_style(Style::default().bg(Color::White).fg(Color::Black))
                     .highlight_symbol("> ");
                 f.render_stateful_widget(list, left, &mut self.list_state);
 
                 // ── Log pane ──
-                let selected_idx = self.list_state.selected().unwrap_or(0);
-                // Account for the block border (2 rows) when computing viewport height.
-                self.viewport = usize::from(right.height.saturating_sub(2));
-                let viewport_width = usize::from(right.width.saturating_sub(2));
-
-                // Parse ANSI per-line for robust rendering.
-                let text = Self::parse_logs(logs);
-
-                // Compute total wrapped lines for accurate scroll clamping.
-                let total_wrapped = Self::wrapped_line_count(&text, viewport_width);
-                let max_offset = total_wrapped.saturating_sub(self.viewport);
-
-                let pos = self.positions.entry(selected_idx).or_insert(0);
-                if *self.following.entry(selected_idx).or_insert(true) {
-                    *pos = max_offset;
-                } else {
-                    *pos = (*pos).min(max_offset);
-                    if *pos >= max_offset {
-                        self.following.insert(selected_idx, true);
-                    }
-                }
+                let [log_area, scrollbar_area] =
+                    Layout::horizontal([Constraint::Min(0), Constraint::Length(1)]).areas(right);
 
                 let log_bg = Color::Rgb(15, 15, 20);
-                let log_block = Block::bordered()
-                    .style(Style::default().bg(log_bg));
 
-                let paragraph = Paragraph::new(text)
+                // Update viewport height for future scroll calculations.
+                self.viewport = usize::from(log_area.height);
+
+                // Fill background to clear stale characters.
+                f.render_widget(Block::default().style(Style::default().bg(log_bg)), right);
+
+                let paragraph = Paragraph::new(text.clone())
                     .style(Style::default().bg(log_bg))
-                    .block(log_block)
-                    .scroll((u16::try_from(*pos).unwrap_or(u16::MAX), 0))
+                    .scroll((u16::try_from(scroll_pos).unwrap_or(u16::MAX), 0))
                     .wrap(Wrap { trim: false });
-                f.render_widget(paragraph, right);
+                f.render_widget(paragraph, log_area);
 
                 let scrollbar = Scrollbar::new(ScrollbarOrientation::VerticalRight)
                     .begin_symbol(None)
                     .end_symbol(None);
                 let mut scrollbar_state = ScrollbarState::new(total_wrapped)
-                    .position(*pos)
+                    .position(scroll_pos)
                     .viewport_content_length(self.viewport);
-                f.render_stateful_widget(scrollbar, right, &mut scrollbar_state);
+                f.render_stateful_widget(scrollbar, scrollbar_area, &mut scrollbar_state);
 
                 // ── Keybinds footer ──
                 let keybinds = Line::from(vec![
-                    Span::styled(" q", Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
+                    Span::styled(
+                        " q",
+                        Style::default()
+                            .fg(Color::White)
+                            .add_modifier(Modifier::BOLD),
+                    ),
                     Span::styled(" quit", Style::default().fg(Color::DarkGray)),
                     Span::styled(" │ ", Style::default().fg(Color::Rgb(60, 60, 60))),
-                    Span::styled("j/↓", Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
+                    Span::styled(
+                        "j/↓",
+                        Style::default()
+                            .fg(Color::White)
+                            .add_modifier(Modifier::BOLD),
+                    ),
                     Span::styled(" next", Style::default().fg(Color::DarkGray)),
                     Span::styled(" │ ", Style::default().fg(Color::Rgb(60, 60, 60))),
-                    Span::styled("k/↑", Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
+                    Span::styled(
+                        "k/↑",
+                        Style::default()
+                            .fg(Color::White)
+                            .add_modifier(Modifier::BOLD),
+                    ),
                     Span::styled(" prev", Style::default().fg(Color::DarkGray)),
                     Span::styled(" │ ", Style::default().fg(Color::Rgb(60, 60, 60))),
-                    Span::styled("u", Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
+                    Span::styled(
+                        "u",
+                        Style::default()
+                            .fg(Color::White)
+                            .add_modifier(Modifier::BOLD),
+                    ),
                     Span::styled(" pg up", Style::default().fg(Color::DarkGray)),
                     Span::styled(" │ ", Style::default().fg(Color::Rgb(60, 60, 60))),
-                    Span::styled("d", Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
+                    Span::styled(
+                        "d",
+                        Style::default()
+                            .fg(Color::White)
+                            .add_modifier(Modifier::BOLD),
+                    ),
                     Span::styled(" pg dn", Style::default().fg(Color::DarkGray)),
                     Span::styled(" │ ", Style::default().fg(Color::Rgb(60, 60, 60))),
-                    Span::styled("scroll", Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
+                    Span::styled(
+                        "scroll",
+                        Style::default()
+                            .fg(Color::White)
+                            .add_modifier(Modifier::BOLD),
+                    ),
                     Span::styled(" mouse", Style::default().fg(Color::DarkGray)),
                 ]);
-                let footer = Paragraph::new(keybinds)
-                    .style(Style::default().bg(Color::Rgb(25, 25, 30)));
+                let footer =
+                    Paragraph::new(keybinds).style(Style::default().bg(Color::Rgb(25, 25, 30)));
                 f.render_widget(footer, footer_area);
             })
             .map_err(|e| anyhow::anyhow!("Failed to draw terminal: {e}"))?;
@@ -326,23 +433,18 @@ impl Tui {
 /// A minimal, non-interactive backend that prints each task's output to
 /// stdout as it arrives. Used when the interactive TUI is disabled.
 #[derive(Default)]
-pub struct PlainUi {
-    printed: HashMap<TaskId, usize>,
-}
+pub struct PlainUi;
 
 impl Ui for PlainUi {
-    fn render(
-        &mut self,
-        _tasks: &[(TaskId, TaskStatus)],
-        logs: &HashMap<TaskId, Vec<String>>,
-    ) -> Result<()> {
-        for (task_id, lines) in logs {
-            let start = *self.printed.get(task_id).unwrap_or(&0);
-            for line in &lines[start..] {
-                println!("[{task_id}] {line}");
-            }
-            self.printed.insert(task_id.clone(), lines.len());
-        }
+    fn push_log(&mut self, task_id: &TaskId, line: String, stream: LogStream) {
+        let prefix = match stream {
+            LogStream::Stdout => "",
+            LogStream::Stderr => "⚠ ",
+        };
+        println!("[{task_id}] {prefix}{line}");
+    }
+
+    fn render(&mut self, _tasks: &[(TaskId, TaskStatus)]) -> Result<()> {
         Ok(())
     }
 }

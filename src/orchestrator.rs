@@ -7,7 +7,7 @@ use tokio::sync::mpsc;
 use crate::{
     TaskId,
     config::TaskMap,
-    events::{AppEvent, TaskCommand},
+    events::{AppEvent, LogStream, TaskCommand},
     scheduler::{initialize_pipeline, schedule},
     tasks::TaskStatus,
     tui::Ui,
@@ -21,7 +21,6 @@ pub struct Orchestrator {
     task_map: Arc<TaskMap>,
     running: HashMap<TaskId, mpsc::Sender<TaskCommand>>,
     statuses: HashMap<TaskId, TaskStatus>,
-    logs: HashMap<TaskId, Vec<String>>,
     pending_restart: HashSet<TaskId>,
     total_tasks: usize,
     finished: usize,
@@ -37,14 +36,12 @@ impl Orchestrator {
             .iter()
             .map(|id| (id.clone(), TaskStatus::Waiting))
             .collect();
-        let logs = task_ids.iter().map(|id| (id.clone(), Vec::new())).collect();
         let total_tasks = task_ids.len();
         Self {
             task_ids,
             task_map,
             running: HashMap::new(),
             statuses,
-            logs,
             pending_restart: HashSet::new(),
             total_tasks,
             finished: 0,
@@ -74,7 +71,7 @@ impl Orchestrator {
         event_tx: mpsc::Sender<AppEvent>,
     ) -> Result<()> {
         loop {
-            self.ui.render(&self.snapshot(), &self.logs)?;
+            self.ui.render(&self.snapshot())?;
             let Some(event) = event_rx.recv().await else {
                 break;
             };
@@ -104,13 +101,10 @@ impl Orchestrator {
     async fn handle_event(&mut self, event: AppEvent, event_tx: &mpsc::Sender<AppEvent>) {
         match event {
             AppEvent::Stdout { task_id, line } => {
-                self.logs.entry(task_id).or_default().push(line);
+                self.ui.push_log(&task_id, line, LogStream::Stdout);
             }
             AppEvent::Stderr { task_id, line } => {
-                self.logs
-                    .entry(task_id)
-                    .or_default()
-                    .push(format!("⚠ {line}"));
+                self.ui.push_log(&task_id, line, LogStream::Stderr);
             }
             AppEvent::TaskSpawned {
                 task_id,
@@ -168,8 +162,8 @@ impl Orchestrator {
                     }
                     KeyCode::Char('j') | KeyCode::Down => self.ui.navigate_next(),
                     KeyCode::Char('k') | KeyCode::Up => self.ui.navigate_previous(),
-                    KeyCode::Char('u') => self.ui.scroll_logs_up(),
-                    KeyCode::Char('d') => self.ui.scroll_logs_down(),
+                    KeyCode::Char('u') => self.ui.scroll_logs_up_by(3),
+                    KeyCode::Char('d') => self.ui.scroll_logs_down_by(3),
                     _ => {}
                 }
             }
@@ -192,10 +186,8 @@ impl Orchestrator {
                 self.statuses.insert(task_id.clone(), TaskStatus::Running);
             }
             Err(e) => {
-                self.logs
-                    .entry(task_id.clone())
-                    .or_default()
-                    .push(format!("⚠ restart failed: {e}"));
+                self.ui
+                    .push_log(task_id, format!("restart failed: {e}"), LogStream::Stderr);
                 self.statuses.insert(
                     task_id.clone(),
                     TaskStatus::Failed {
@@ -239,4 +231,3 @@ pub async fn run(
     let mut orchestrator = Orchestrator::new(all_task_ids, task_map, ui).with_auto_quit(auto_quit);
     orchestrator.run(event_rx, event_tx).await
 }
-

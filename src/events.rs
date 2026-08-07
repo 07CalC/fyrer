@@ -10,6 +10,13 @@ pub enum ScrollDirection {
     Down,
 }
 
+/// Which output stream a log line came from.
+#[derive(Debug, Clone, Copy)]
+pub enum LogStream {
+    Stdout,
+    Stderr,
+}
+
 #[derive(Debug)]
 pub enum AppEvent {
     Stdout {
