@@ -37,10 +37,7 @@ impl Orchestrator {
             .iter()
             .map(|id| (id.clone(), TaskStatus::Waiting))
             .collect();
-        let logs = task_ids
-            .iter()
-            .map(|id| (id.clone(), Vec::new()))
-            .collect();
+        let logs = task_ids.iter().map(|id| (id.clone(), Vec::new())).collect();
         let total_tasks = task_ids.len();
         Self {
             task_ids,
@@ -78,7 +75,9 @@ impl Orchestrator {
     ) -> Result<()> {
         loop {
             self.ui.render(&self.snapshot(), &self.logs)?;
-            let Some(event) = event_rx.recv().await else { break };
+            let Some(event) = event_rx.recv().await else {
+                break;
+            };
             self.handle_event(event, &event_tx).await;
             if self.should_quit {
                 break;
@@ -108,9 +107,15 @@ impl Orchestrator {
                 self.logs.entry(task_id).or_default().push(line);
             }
             AppEvent::Stderr { task_id, line } => {
-                self.logs.entry(task_id).or_default().push(format!("⚠ {line}"));
+                self.logs
+                    .entry(task_id)
+                    .or_default()
+                    .push(format!("⚠ {line}"));
             }
-            AppEvent::TaskSpawned { task_id, command_sender } => {
+            AppEvent::TaskSpawned {
+                task_id,
+                command_sender,
+            } => {
                 self.running.insert(task_id.clone(), command_sender);
                 self.statuses.insert(task_id, TaskStatus::Running);
             }
@@ -132,8 +137,13 @@ impl Orchestrator {
                 if self.pending_restart.remove(&task_id) {
                     self.restart(&task_id, event_tx);
                 } else {
-                    self.statuses
-                        .insert(task_id, TaskStatus::Failed { code: exit_code, error });
+                    self.statuses.insert(
+                        task_id,
+                        TaskStatus::Failed {
+                            code: exit_code,
+                            error,
+                        },
+                    );
                     self.mark_finished();
                 }
             }
@@ -158,7 +168,16 @@ impl Orchestrator {
                     }
                     KeyCode::Char('j') | KeyCode::Down => self.ui.navigate_next(),
                     KeyCode::Char('k') | KeyCode::Up => self.ui.navigate_previous(),
+                    KeyCode::Char('u') => self.ui.scroll_logs_up(),
+                    KeyCode::Char('d') => self.ui.scroll_logs_down(),
                     _ => {}
+                }
+            }
+            AppEvent::MouseScroll(direction) => {
+                use crate::events::ScrollDirection;
+                match direction {
+                    ScrollDirection::Up => self.ui.scroll_logs_up_by(3),
+                    ScrollDirection::Down => self.ui.scroll_logs_down_by(3),
                 }
             }
             AppEvent::Tick => {}
@@ -217,7 +236,7 @@ pub async fn run(
     let scheduler_task_map = task_map.clone();
     tokio::spawn(async move { schedule(levels, scheduler_task_map, scheduler_tx).await });
 
-    let mut orchestrator =
-        Orchestrator::new(all_task_ids, task_map, ui).with_auto_quit(auto_quit);
+    let mut orchestrator = Orchestrator::new(all_task_ids, task_map, ui).with_auto_quit(auto_quit);
     orchestrator.run(event_rx, event_tx).await
 }
+

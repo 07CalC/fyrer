@@ -3,6 +3,13 @@ use tokio::sync::mpsc::Sender;
 
 use crate::TaskId;
 
+/// Direction of a mouse scroll event.
+#[derive(Debug, Clone, Copy)]
+pub enum ScrollDirection {
+    Up,
+    Down,
+}
+
 #[derive(Debug)]
 pub enum AppEvent {
     Stdout {
@@ -25,6 +32,7 @@ pub enum AppEvent {
         task_id: TaskId,
     },
     KeyPress(KeyEvent),
+    MouseScroll(ScrollDirection),
     TaskSpawned {
         task_id: TaskId,
         command_sender: Sender<TaskCommand>,

@@ -63,10 +63,29 @@ pub fn spawn_input_collector(event_bus_sender: tokio::sync::mpsc::Sender<AppEven
                             None
                         }
                     }) => {
-                    if let Ok(Some(crossterm::event::Event::Key(key_event))) = result
-                        && event_bus_sender.send(AppEvent::KeyPress(key_event)).await.is_err()
-                    {
-                        break;
+                    match result {
+                        Ok(Some(crossterm::event::Event::Key(key_event))) => {
+                            if event_bus_sender.send(AppEvent::KeyPress(key_event)).await.is_err() {
+                                break;
+                            }
+                        }
+                        Ok(Some(crossterm::event::Event::Mouse(mouse_event))) => {
+                            let dir = match mouse_event.kind {
+                                crossterm::event::MouseEventKind::ScrollUp => {
+                                    Some(crate::events::ScrollDirection::Up)
+                                }
+                                crossterm::event::MouseEventKind::ScrollDown => {
+                                    Some(crate::events::ScrollDirection::Down)
+                                }
+                                _ => None,
+                            };
+                            if let Some(d) = dir
+                                && event_bus_sender.send(AppEvent::MouseScroll(d)).await.is_err()
+                            {
+                                break;
+                            }
+                        }
+                        _ => {}
                     }
                 }
             }
