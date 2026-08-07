@@ -2,7 +2,17 @@ use std::{sync::Arc, time::Duration};
 
 use crate::{TaskId, config::TaskMap, events::AppEvent};
 
-pub async fn run_scheduler(
+/// Spawns the background tasks that feed the event bus: a periodic ticker and
+/// keyboard input collector, plus a Ctrl-C handler. These must be started once,
+/// before the orchestrator event loop begins.
+pub fn initialize_pipeline(event_bus_sender: &tokio::sync::mpsc::Sender<AppEvent>) {
+    spawn_input_collector(event_bus_sender.clone());
+    spawn_ctrl_c_handler(event_bus_sender.clone());
+}
+
+/// Spawns every task across the dependency levels, waiting for each level to
+/// finish before starting the next.
+pub async fn schedule(
     levels: Vec<Vec<TaskId>>,
     task_map: Arc<TaskMap>,
     event_bus_sender: tokio::sync::mpsc::Sender<AppEvent>,
@@ -26,7 +36,7 @@ pub async fn run_scheduler(
                         .send(AppEvent::TaskFailed {
                             task_id: task_id.clone(),
                             exit_code: -1,
-                            error: Some(format!("Failed to spawn task {}: {}", task_id, e)),
+                            error: Some(format!("Failed to spawn task {task_id}: {e}")),
                         })
                         .await;
                 }
@@ -53,12 +63,10 @@ pub fn spawn_input_collector(event_bus_sender: tokio::sync::mpsc::Sender<AppEven
                             None
                         }
                     }) => {
-                    if let Ok(Some(event)) = result {
-                        if let crossterm::event::Event::Key(key_event) = event {
-                            if event_bus_sender.send(AppEvent::KeyPress(key_event)).await.is_err() {
-                                break;
-                            }
-                        }
+                    if let Ok(Some(crossterm::event::Event::Key(key_event))) = result
+                        && event_bus_sender.send(AppEvent::KeyPress(key_event)).await.is_err()
+                    {
+                        break;
                     }
                 }
             }

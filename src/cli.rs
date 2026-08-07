@@ -21,6 +21,9 @@ pub enum Command {
         task: Option<String>,
         #[arg(long)]
         dry_run: bool,
+        /// Print task output to stdout instead of the interactive TUI.
+        #[arg(long, default_value_t = false)]
+        no_tui: bool,
     },
     List,
 }
