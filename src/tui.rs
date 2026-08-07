@@ -5,6 +5,7 @@ use ratatui::{
     Terminal,
     backend::CrosstermBackend,
     layout::{Constraint, Layout},
+    style::Style,
     widgets::{Block, List, ListItem, ListState, Paragraph},
 };
 
@@ -135,7 +136,7 @@ fn render(
     list_state: &mut ListState,
 ) {
     let [left, right] =
-        Layout::horizontal([Constraint::Length(30), Constraint::Min(0)]).areas(f.area());
+        Layout::horizontal([Constraint::Length(25), Constraint::Min(0)]).areas(f.area());
 
     let items: Vec<ListItem> = tasks
         .iter()
@@ -152,12 +153,21 @@ fn render(
         .collect();
 
     let list = List::new(items)
-        .block(Block::bordered().title("tasks"))
-        .highlight_style(ratatui::style::Style::default().bg(ratatui::style::Color::Blue))
+        .block(Block::bordered().title("Tasks"))
+        .highlight_style(
+            ratatui::style::Style::default()
+                .bg(ratatui::style::Color::White)
+                .fg(ratatui::style::Color::Black),
+        )
         .highlight_symbol("> ");
     f.render_stateful_widget(list, left, list_state);
 
-    let paragraph = Paragraph::new(logs.join("\n")).block(Block::bordered().title("logs"));
+    let paragraph = Paragraph::new(logs.join("\n"))
+        // .block(Block::bordered().title("logs"))
+        .style(
+            Style::default()
+                .fg(ratatui::style::Color::White)
+                .bg(ratatui::style::Color::from_u32(0x000000)),
+        );
     f.render_widget(paragraph, right);
 }
-
