@@ -80,7 +80,7 @@ impl Task {
         let tx = event_bus_sender.clone();
         let id = task_id.clone();
 
-        tokio::spawn(async move {
+        let stdout_handle = tokio::spawn(async move {
             let mut lines = BufReader::new(stdout).lines();
             while let Ok(Some(line)) = lines.next_line().await {
                 let _ = tx
@@ -95,7 +95,7 @@ impl Task {
         // pipe stderr
         let tx = event_bus_sender.clone();
         let id = task_id.clone();
-        tokio::spawn(async move {
+        let stderr_handle = tokio::spawn(async move {
             let mut lines = BufReader::new(stderr).lines();
             while let Ok(Some(line)) = lines.next_line().await {
                 let _ = tx
@@ -112,6 +112,8 @@ impl Task {
             loop {
                 tokio::select! {
                     status = child.wait() => {
+                        let _ = stdout_handle.await;
+                        let _ = stderr_handle.await;
                         let event = match status {
                             Ok(s) if s.success() => AppEvent::TaskComplete { task_id: task_id.clone() },
                             Ok(s) => AppEvent::TaskFailed {

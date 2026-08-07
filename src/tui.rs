@@ -9,7 +9,7 @@ use ratatui::{
     style::{Color, Modifier, Style, Stylize},
     text::{Line, Span, Text},
     widgets::{
-        Block, Borders, List, ListItem, ListState, Paragraph, Scrollbar, ScrollbarOrientation,
+        Block, List, ListItem, ListState, Paragraph, Scrollbar, ScrollbarOrientation,
         ScrollbarState, Wrap,
     },
 };
@@ -209,7 +209,7 @@ impl Tui {
             .sum()
     }
 
-    /// Returns the cached parsed [`Text`] and its wrapped height for the given
+    /// Returns the cached parsed [`Text`] and its wrapped line count for the given
     /// task, re-parsing only when new lines have been pushed or the viewport
     /// width has changed.
     fn get_or_parse(
@@ -282,16 +282,20 @@ impl Tui {
         tasks: &[(String, TaskStatus)],
         selected_task_id: Option<&TaskId>,
     ) -> Result<()> {
-        // Pre-compute the parsed text outside the draw closure so we don't
-        // need to borrow `self` inside the closure (which also borrows
-        // `self.terminal`).
-        let viewport_width_estimate = self
+        // Compute usable inner rect bounds (accounting for task list width, footer, and block borders).
+        let (usable_width, usable_height) = self
             .terminal
             .size()
-            .map_or(80, |s| usize::from(s.width.saturating_sub(26)));
+            .map_or((80, 24), |s| {
+                let w = usize::from(s.width.saturating_sub(27)); // 25 left + 2 border
+                let h = usize::from(s.height.saturating_sub(3));  // 1 footer + 2 border
+                (w.max(1), h.max(1))
+            });
+
+        self.viewport = usable_height;
 
         let (text, total_wrapped) = if let Some(tid) = selected_task_id {
-            Self::get_or_parse(&mut self.cache, &self.logs, tid, viewport_width_estimate)
+            Self::get_or_parse(&mut self.cache, &self.logs, tid, usable_width)
         } else {
             (Text::default(), 0)
         };
@@ -299,7 +303,7 @@ impl Tui {
         let selected_idx = self.list_state.selected().unwrap_or(0);
 
         // Clamp / follow scroll position.
-        let max_offset = total_wrapped.saturating_sub(self.viewport.max(1));
+        let max_offset = total_wrapped.saturating_sub(self.viewport);
         let pos = self.positions.entry(selected_idx).or_insert(0);
         if *self.following.entry(selected_idx).or_insert(true) {
             *pos = max_offset;
@@ -346,28 +350,14 @@ impl Tui {
                 f.render_stateful_widget(list, left, &mut self.list_state);
 
                 // ── Log pane ──
-                let [log_area, scrollbar_area] =
-                    Layout::horizontal([Constraint::Min(0), Constraint::Length(1)]).areas(right);
-
                 let log_bg = Color::Rgb(15, 15, 20);
-
-                // Update viewport height for future scroll calculations.
-                self.viewport = usize::from(log_area.height);
-
-                // Fill background to clear stale characters.
-                // f.render_widget(
-                //     Block::default()
-                //         .style(Style::default().bg(log_bg))
-                //         .borders(Borders::default()),
-                //     right,
-                // );
 
                 let paragraph = Paragraph::new(text.clone())
                     .style(Style::default().bg(log_bg))
                     .block(Block::bordered().title("Logs").bg(log_bg))
                     .scroll((u16::try_from(scroll_pos).unwrap_or(u16::MAX), 0))
                     .wrap(Wrap { trim: false });
-                f.render_widget(paragraph, log_area);
+                f.render_widget(paragraph, right);
 
                 let scrollbar = Scrollbar::new(ScrollbarOrientation::VerticalRight)
                     .begin_symbol(None)
@@ -375,7 +365,7 @@ impl Tui {
                 let mut scrollbar_state = ScrollbarState::new(total_wrapped)
                     .position(scroll_pos)
                     .viewport_content_length(self.viewport);
-                f.render_stateful_widget(scrollbar, scrollbar_area, &mut scrollbar_state);
+                f.render_stateful_widget(scrollbar, right, &mut scrollbar_state);
 
                 // ── Keybinds footer ──
                 let keybinds = Line::from(vec![
