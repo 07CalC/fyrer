@@ -128,7 +128,9 @@ impl TaskGraph {
     }
 
     /// Returns the given tasks and their transitive dependencies, grouped
-    /// into topological levels that may be executed concurrently.
+    /// into topological levels that may be executed concurrently. Each entry
+    /// of a level is the task id together with the resolved dependency ids of
+    /// that task within the run's closure.
     ///
     /// # Errors
     ///
@@ -137,7 +139,7 @@ impl TaskGraph {
     /// # Panics
     ///
     /// Panics if the graph is internally inconsistent.
-    pub fn get_orders(&self, tasks: &[TaskId]) -> FyrerResult<Vec<Vec<TaskId>>> {
+    pub fn get_orders(&self, tasks: &[TaskId]) -> FyrerResult<Vec<Vec<(TaskId, Vec<TaskId>)>>> {
         for id in tasks {
             if !self.nodes.contains_key(id) {
                 return Err(FyrerError::Graph(GraphError::TaskNotFound(id.to_string())));
@@ -153,17 +155,23 @@ impl TaskGraph {
             }
         }
 
+        // Resolve each relevant task to the dependencies that are also relevant.
+        let deps: HashMap<TaskId, Vec<TaskId>> = relevant
+            .iter()
+            .map(|id| {
+                let ds: Vec<TaskId> = self.nodes[id]
+                    .deps
+                    .iter()
+                    .filter(|dep| relevant.contains(*dep))
+                    .cloned()
+                    .collect();
+                (id.clone(), ds)
+            })
+            .collect();
+
         // Compute the in-degree of every node in the relevant subgraph.
-        let mut in_degree = HashMap::new();
-        for id in &relevant {
-            let node = &self.nodes[id];
-            let degree = node
-                .deps
-                .iter()
-                .filter(|dep| relevant.contains(*dep))
-                .count();
-            in_degree.insert(id.clone(), degree);
-        }
+        let mut in_degree: HashMap<TaskId, usize> =
+            deps.iter().map(|(id, ds)| (id.clone(), ds.len())).collect();
 
         let mut queue: VecDeque<TaskId> = in_degree
             .iter()
@@ -175,7 +183,15 @@ impl TaskGraph {
         let mut processed = HashSet::new();
 
         while !queue.is_empty() {
-            levels.push(queue.iter().cloned().collect());
+            levels.push(
+                queue
+                    .iter()
+                    .map(|id| {
+                        let deps = deps[&id].clone();
+                        (id.clone(), deps)
+                    })
+                    .collect(),
+            );
 
             let mut next_queue = VecDeque::new();
             for id in &queue {
@@ -252,10 +268,16 @@ mod tests {
             .unwrap();
 
         assert_eq!(order.len(), 2);
-        assert_eq!(order[0], vec![TaskId::new("ui", "build")]);
-        let second: Vec<String> = order[1].iter().map(ToString::to_string).collect();
+        assert_eq!(order[0], vec![(TaskId::new("ui", "build"), vec![])]);
+        let second: Vec<String> = order[1]
+            .iter()
+            .map(|(id, _)| id.to_string())
+            .collect();
         assert!(second.contains(&"web:build".to_string()));
         assert!(second.contains(&"web:test".to_string()));
+        for (_, deps) in &order[1] {
+            assert_eq!(deps, &vec![TaskId::new("ui", "build")]);
+        }
     }
 
     #[test]

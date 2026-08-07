@@ -48,7 +48,7 @@ pub struct Task {
 
 #[derive(Debug)]
 pub struct SpawnedTask {
-    pub handle: JoinHandle<()>,
+    pub handle: JoinHandle<bool>,
     pub command_sender: Sender<TaskCommand>,
 }
 
@@ -112,6 +112,10 @@ impl Task {
             loop {
                 tokio::select! {
                     status = child.wait() => {
+                        let success = match status {
+                            Ok(s) if s.success() => true,
+                            _ => false,
+                        };
                         let _ = stdout_handle.await;
                         let _ = stderr_handle.await;
                         let event = match status {
@@ -128,7 +132,7 @@ impl Task {
                             },
                         };
                         let _ = event_bus_sender.send(event).await;
-                        break;
+                        return success;
                     }
                     Some(cmd) = command_receiver.recv() => {
                         match cmd {

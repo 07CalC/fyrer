@@ -56,7 +56,7 @@ impl App {
                 if dry_run {
                     for (i, batch) in levels.iter().enumerate() {
                         let task_names: Vec<String> =
-                            batch.iter().map(ToString::to_string).collect();
+                            batch.iter().map(|(id, _)| id.to_string()).collect();
                         println!("step {}: {}", i + 1, task_names.join(", "));
                     }
                     return Ok(());
@@ -67,7 +67,7 @@ impl App {
         }
     }
 
-    async fn run(&self, levels: Vec<Vec<TaskId>>, no_tui: bool) -> Result<()> {
+    async fn run(&self, levels: Vec<Vec<(TaskId, Vec<TaskId>)>>, no_tui: bool) -> Result<()> {
         let ui: Box<dyn Ui> = if no_tui {
             Box::new(PlainUi::default())
         } else {

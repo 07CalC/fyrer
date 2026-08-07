@@ -131,6 +131,22 @@ impl Orchestrator {
                 if self.pending_restart.remove(&task_id) {
                     self.restart(&task_id, event_tx);
                 } else {
+                    if error.is_some() {
+                        self.ui.push_log(
+                            &task_id,
+                            format!(
+                                "task failed with exit code {exit_code}: {}",
+                                error.as_ref().unwrap()
+                            ),
+                            LogStream::Stderr,
+                        );
+                    } else {
+                        self.ui.push_log(
+                            &task_id,
+                            format!("task failed with exit code {exit_code}"),
+                            LogStream::Stderr,
+                        );
+                    }
                     self.statuses.insert(
                         task_id,
                         TaskStatus::Failed {
@@ -216,13 +232,13 @@ impl Orchestrator {
 ///
 /// Returns an error if the UI backend fails to render or shut down.
 pub async fn run(
-    levels: Vec<Vec<TaskId>>,
+    levels: Vec<Vec<(TaskId, Vec<TaskId>)>>,
     task_map: Arc<TaskMap>,
     ui: Box<dyn Ui>,
     auto_quit: bool,
 ) -> Result<()> {
     let (event_tx, event_rx) = mpsc::channel(task_map.len() * 10);
-    let all_task_ids: Vec<TaskId> = levels.iter().flatten().cloned().collect();
+    let all_task_ids: Vec<TaskId> = levels.iter().flatten().map(|(id, _)| id.clone()).collect();
 
     initialize_pipeline(&event_tx);
     let scheduler_tx = event_tx.clone();

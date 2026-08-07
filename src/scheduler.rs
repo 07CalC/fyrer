@@ -1,4 +1,4 @@
-use std::{sync::Arc, time::Duration};
+use std::{collections::HashSet, sync::Arc, time::Duration};
 
 use crate::{TaskId, config::TaskMap, events::AppEvent};
 
@@ -11,15 +11,28 @@ pub fn initialize_pipeline(event_bus_sender: &tokio::sync::mpsc::Sender<AppEvent
 }
 
 /// Spawns every task across the dependency levels, waiting for each level to
-/// finish before starting the next.
+/// finish before starting the next. Tasks whose dependencies have already
+/// failed are skipped (cascading the failure to their own dependents).
 pub async fn schedule(
-    levels: Vec<Vec<TaskId>>,
+    levels: Vec<Vec<(TaskId, Vec<TaskId>)>>,
     task_map: Arc<TaskMap>,
     event_bus_sender: tokio::sync::mpsc::Sender<AppEvent>,
 ) {
+    let mut failed: HashSet<TaskId> = HashSet::new();
     for batch in levels {
         let mut handles = Vec::with_capacity(batch.len());
-        for task_id in batch {
+        for (task_id, deps) in batch {
+            if deps.iter().any(|dep| failed.contains(dep)) {
+                failed.insert(task_id.clone());
+                let _ = event_bus_sender
+                    .send(AppEvent::TaskFailed {
+                        task_id: task_id.clone(),
+                        exit_code: -1,
+                        error: Some(format!("skipped: a dependency of {task_id} failed")),
+                    })
+                    .await;
+                continue;
+            }
             let task = &task_map[&task_id];
             match task.spawn(event_bus_sender.clone()) {
                 Ok(spawned_task) => {
@@ -29,9 +42,10 @@ pub async fn schedule(
                             command_sender: spawned_task.command_sender,
                         })
                         .await;
-                    handles.push(spawned_task.handle);
+                    handles.push((task_id, spawned_task.handle));
                 }
                 Err(e) => {
+                    failed.insert(task_id.clone());
                     let _ = event_bus_sender
                         .send(AppEvent::TaskFailed {
                             task_id: task_id.clone(),
@@ -42,7 +56,11 @@ pub async fn schedule(
                 }
             }
         }
-        futures::future::join_all(handles).await;
+        for (task_id, handle) in handles {
+            if !handle.await.unwrap_or(false) {
+                failed.insert(task_id);
+            }
+        }
     }
 }
 
