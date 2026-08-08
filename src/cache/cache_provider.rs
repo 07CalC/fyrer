@@ -19,7 +19,7 @@ pub trait CacheProvider: Send + Sync {
     ///
     /// A return value of `false` (not an error) means the entry was not
     /// found or was corrupt; the caller should fall through to execution.
-    fn restore(&self, key: &str) -> Result<bool>;
+    fn restore(&self, key: &str, output_hash: &str) -> Result<bool>;
 
     /// Stores the outputs identified by `source` under `key`.
     ///

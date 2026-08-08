@@ -15,7 +15,7 @@ pub struct CacheMetadata {
     pub dependencies: Vec<String>,
     pub duration_ms: u64,
     pub exit_code: i32,
-    pub outputs: Vec<String>,
+    pub output_hash: String,
     pub cache: CacheStatus,
     pub cache_key: Option<String>,
     pub timestamp: u64,

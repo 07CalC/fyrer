@@ -20,11 +20,29 @@ impl CacheProvider for LocalCacheProvider {
             .is_dir()
     }
 
-    fn restore(&self, key: &str) -> anyhow::Result<bool> {
+    fn restore(&self, key: &str, output_hash: &str) -> anyhow::Result<bool> {
         let start = std::time::Instant::now();
         let cache_dir = Path::new(DEFAULT_FYRER_DIR).join("cache").join(key);
         if !cache_dir.exists() {
             return Ok(false);
+        }
+
+        let meta_path = cache_dir.join("meta.json");
+        let meta_file = File::open(&meta_path).with_context(|| {
+            format!(
+                "failed to open cache metadata file '{}'",
+                meta_path.display()
+            )
+        })?;
+        let metadata: CacheMetadata = serde_json::from_reader(meta_file).with_context(|| {
+            format!(
+                "failed to parse cache metadata file '{}'",
+                meta_path.display()
+            )
+        })?;
+        if metadata.output_hash == output_hash {
+            println!("Cache entry '{}' is up to date (output hash matches)", key);
+            return Ok(true);
         }
 
         let archive_path = cache_dir.join("outputs.tar.zst");

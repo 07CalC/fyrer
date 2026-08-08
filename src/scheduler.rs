@@ -9,7 +9,7 @@ use crate::{
     Task, TaskId,
     cache::{
         CacheMetadata, CacheProvider, CacheStatus,
-        cache::get_hash,
+        cache::{get_hash, hash_output_files},
     },
     config::TaskMap,
     events::AppEvent,
@@ -41,8 +41,12 @@ pub async fn schedule(
 
     for batch in levels {
         // Each entry: (task_id, cache_hash_or_empty, start_instant, join_handle)
-        let mut handles: Vec<(TaskId, String, std::time::Instant, tokio::task::JoinHandle<bool>)> =
-            Vec::with_capacity(batch.len());
+        let mut handles: Vec<(
+            TaskId,
+            String,
+            std::time::Instant,
+            tokio::task::JoinHandle<bool>,
+        )> = Vec::with_capacity(batch.len());
 
         for (task_id, deps) in batch {
             // Cascade failures from dependencies.
@@ -73,8 +77,8 @@ pub async fn schedule(
                             .await;
                     }
                     Ok(hash) if cache_provider.contains(&hash) => {
-                        // Cache hit — try to restore.
-                        match cache_provider.restore(&hash) {
+                        let output_hash = hash_output_files(&task).unwrap_or("".to_string());
+                        match cache_provider.restore(&hash, &output_hash) {
                             Ok(true) => {
                                 let _ = event_bus_sender
                                     .send(AppEvent::Stdout {
@@ -106,31 +110,19 @@ pub async fn schedule(
                                 let _ = event_bus_sender
                                     .send(AppEvent::Stderr {
                                         task_id: task_id.clone(),
-                                        line: format!("cache: restore failed ({e}), re-running task"),
+                                        line: format!(
+                                            "cache: restore failed ({e}), re-running task"
+                                        ),
                                     })
                                     .await;
                             }
                         }
                         // Fall through: run the task normally
-                        spawn_task(
-                            task,
-                            task_id,
-                            hash,
-                            &event_bus_sender,
-                            &mut handles,
-                        )
-                        .await;
+                        spawn_task(task, task_id, hash, &event_bus_sender, &mut handles).await;
                     }
                     Ok(hash) => {
                         // Cache miss — run the task.
-                        spawn_task(
-                            task,
-                            task_id,
-                            hash,
-                            &event_bus_sender,
-                            &mut handles,
-                        )
-                        .await;
+                        spawn_task(task, task_id, hash, &event_bus_sender, &mut handles).await;
                     }
                 }
             } else {
@@ -163,6 +155,7 @@ pub async fn schedule(
             let task = &task_map[&task_id];
             let duration_ms = started_at.elapsed().as_millis() as u64;
             let output_paths = resolve_output_dirs(task);
+            let output_hash = hash_output_files(task).unwrap_or("".to_string());
 
             let metadata = CacheMetadata {
                 task: task_id.to_string(),
@@ -171,10 +164,10 @@ pub async fn schedule(
                 dependencies: task.depends_on.clone(),
                 duration_ms,
                 exit_code: 0,
-                outputs: task.outputs.clone(),
                 cache: CacheStatus::Miss,
                 cache_key: Some(hash.clone()),
                 timestamp: unix_timestamp_secs(),
+                output_hash: output_hash.clone(),
             };
 
             match cache_provider.save(&hash, &output_paths, metadata) {
@@ -209,7 +202,12 @@ async fn spawn_task(
     task_id: TaskId,
     hash: String,
     event_bus_sender: &tokio::sync::mpsc::Sender<AppEvent>,
-    handles: &mut Vec<(TaskId, String, std::time::Instant, tokio::task::JoinHandle<bool>)>,
+    handles: &mut Vec<(
+        TaskId,
+        String,
+        std::time::Instant,
+        tokio::task::JoinHandle<bool>,
+    )>,
 ) {
     match task.spawn(event_bus_sender.clone()) {
         Ok(spawned_task) => {
@@ -219,7 +217,12 @@ async fn spawn_task(
                     command_sender: spawned_task.command_sender,
                 })
                 .await;
-            handles.push((task_id, hash, std::time::Instant::now(), spawned_task.handle));
+            handles.push((
+                task_id,
+                hash,
+                std::time::Instant::now(),
+                spawned_task.handle,
+            ));
         }
         Err(e) => {
             let _ = event_bus_sender

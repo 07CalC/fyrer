@@ -164,6 +164,43 @@ fn hash_input_files(hasher: &mut blake3::Hasher, task: &Task, input: &str) -> Re
     Ok(())
 }
 
+pub fn hash_output_files(task: &Task) -> Result<String> {
+    let mut hasher = blake3::Hasher::new();
+    let mut matched: Vec<PathBuf> = Vec::new();
+    for output in &task.outputs {
+        let pattern = task.project_root.join(output);
+        let pattern_str = pattern.to_string_lossy();
+        let entries = glob(&pattern_str)
+            .map_err(|e| anyhow!("Invalid output glob '{}': {}", pattern_str, e))?;
+        for entry in entries {
+            let path =
+                entry.map_err(|e| anyhow!("Error walking output glob '{}': {}", pattern_str, e))?;
+            if !path.is_file() {
+                continue;
+            }
+            let rel = path.strip_prefix(&task.project_root).unwrap_or(&path);
+            if is_ignored(rel, &task.ignore) {
+                continue;
+            }
+            matched.push(path);
+        }
+    }
+    matched.sort();
+
+    hash_kv(
+        &mut hasher,
+        b"file_count",
+        &(matched.len() as u64).to_le_bytes(),
+    );
+    for path in &matched {
+        let rel = path.strip_prefix(&task.project_root).unwrap_or(path);
+        hash_kv(&mut hasher, b"path", rel.to_string_lossy().as_bytes());
+        let content = fs::read(path)?;
+        hash_kv(&mut hasher, b"content", &content);
+    }
+    Ok(hasher.finalize().to_hex().to_string())
+}
+
 fn is_ignored(rel_path: &Path, patterns: &[String]) -> bool {
     patterns
         .iter()
