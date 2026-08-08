@@ -36,7 +36,8 @@ fn task_hash(
     task_map: &TaskMap,
     memo: &mut HashMap<TaskId, String>,
     visiting: &mut HashSet<TaskId>,
-) -> Result<String> {    if let Some(hash) = memo.get(task_id) {
+) -> Result<String> {
+    if let Some(hash) = memo.get(task_id) {
         return Ok(hash.clone());
     }
     if !visiting.insert(task_id.clone()) {
@@ -62,7 +63,11 @@ fn task_hash(
         let dep_id = TaskId::parse(spec)
             .ok_or_else(|| anyhow!("Invalid dependency '{}' of task '{}'", spec, task_id))?;
         if !task_map.contains_key(&dep_id) {
-            return Err(anyhow!("Dependency '{}' of task '{}' not found", spec, task_id));
+            return Err(anyhow!(
+                "Dependency '{}' of task '{}' not found",
+                spec,
+                task_id
+            ));
         }
         if seen_deps.insert(dep_id.clone()) {
             dep_ids.push(dep_id);
@@ -118,11 +123,12 @@ fn task_hash(
 fn hash_input_files(hasher: &mut blake3::Hasher, task: &Task, input: &str) -> Result<()> {
     let pattern = task.project_root.join(input);
     let pattern_str = pattern.to_string_lossy();
-    let entries = glob(&pattern_str)
-        .map_err(|e| anyhow!("Invalid input glob '{}': {}", pattern_str, e))?;
+    let entries =
+        glob(&pattern_str).map_err(|e| anyhow!("Invalid input glob '{}': {}", pattern_str, e))?;
     let mut matched: Vec<PathBuf> = Vec::new();
     for entry in entries {
-        let path = entry.map_err(|e| anyhow!("Error walking input glob '{}': {}", pattern_str, e))?;
+        let path =
+            entry.map_err(|e| anyhow!("Error walking input glob '{}': {}", pattern_str, e))?;
         if !path.is_file() {
             continue;
         }
@@ -186,10 +192,7 @@ mod tests {
     }
 
     fn make_map(tasks: Vec<Task>) -> TaskMap {
-        tasks
-            .into_iter()
-            .map(|t| (t.id(), t))
-            .collect::<TaskMap>()
+        tasks.into_iter().map(|t| (t.id(), t)).collect::<TaskMap>()
     }
 
     #[test]
@@ -197,12 +200,18 @@ mod tests {
         let map = make_map(vec![
             make_task(
                 "a",
-                EnvMap::from([("X".to_string(), "1".to_string()), ("Y".to_string(), "2".to_string())]),
+                EnvMap::from([
+                    ("X".to_string(), "1".to_string()),
+                    ("Y".to_string(), "2".to_string()),
+                ]),
                 Vec::new(),
             ),
             make_task(
                 "b",
-                EnvMap::from([("Y".to_string(), "2".to_string()), ("X".to_string(), "1".to_string())]),
+                EnvMap::from([
+                    ("Y".to_string(), "2".to_string()),
+                    ("X".to_string(), "1".to_string()),
+                ]),
                 vec!["m:a".to_string()],
             ),
         ]);
@@ -245,3 +254,4 @@ mod tests {
         assert!(get_hash(&map[&TaskId::new("m", "a")], &map).is_err());
     }
 }
+
