@@ -19,7 +19,6 @@ impl CacheProvider for LocalCacheProvider {
     }
 
     fn restore(&self, key: &str, output_hash: &str) -> anyhow::Result<bool> {
-        let start = std::time::Instant::now();
         let cache_dir = Path::new(DEFAULT_FYRER_DIR).join("cache").join(key);
         if !cache_dir.exists() {
             return Ok(false);
@@ -39,7 +38,6 @@ impl CacheProvider for LocalCacheProvider {
             )
         })?;
         if metadata.output_hash == output_hash {
-            println!("Cache entry '{}' is up to date (output hash matches)", key);
             return Ok(true);
         }
 
@@ -68,8 +66,6 @@ impl CacheProvider for LocalCacheProvider {
             )
         })?;
 
-        let elapsed = start.elapsed();
-        println!("Restored cache entry '{}' in {:.2?}", key, elapsed);
         Ok(true)
     }
 
@@ -108,9 +104,16 @@ impl CacheProvider for LocalCacheProvider {
         let mut tar = tar::Builder::new(encoder);
 
         for output in source {
-            if output.exists() {
+            if !output.exists() {
+                continue;
+            }
+            if output.is_dir() {
                 tar.append_dir_all(output, output)
                     .with_context(|| format!("failed to archive '{}'", output.display()))?;
+            } else {
+                tar.append_path_with_name(output, output).with_context(|| {
+                    format!("failed to archive '{}'", output.display())
+                })?;
             }
         }
 

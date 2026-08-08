@@ -53,10 +53,12 @@ pub async fn schedule(
             if task.cache {
                 match get_hash(task, &task_map) {
                     Err(e) => {
+                        failed.insert(task_id.clone());
                         let _ = event_bus_sender
-                            .send(AppEvent::Stderr {
+                            .send(AppEvent::TaskFailed {
                                 task_id: task_id.clone(),
-                                line: format!("cache: failed to compute hash: {e}"),
+                                exit_code: -1,
+                                error: Some(format!("cache: failed to compute hash: {e}")),
                             })
                             .await;
                     }
@@ -167,6 +169,7 @@ pub async fn schedule(
             }
         }
     }
+    let _ = event_bus_sender.send(AppEvent::RunFinished).await;
 }
 async fn spawn_task(
     task: &Task,

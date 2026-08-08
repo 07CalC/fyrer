@@ -7,16 +7,9 @@ use std::{
     path::{Path, PathBuf},
 };
 pub fn get_hash(task: &Task, task_map: &TaskMap) -> Result<String> {
-    let start = std::time::Instant::now();
     let mut memo = HashMap::new();
     let mut visiting = HashSet::new();
-    let hash = task_hash(&task.id(), task_map, &mut memo, &mut visiting);
-    println!(
-        "Computed hash for task '{}' in {:?}",
-        task.id(),
-        start.elapsed()
-    );
-    hash
+    task_hash(&task.id(), task_map, &mut memo, &mut visiting)
 }
 
 fn task_hash(

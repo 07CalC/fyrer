@@ -28,7 +28,7 @@ pub enum FyrerError {
 
 #[derive(Debug, Error)]
 pub enum ConfigError {
-    #[error("failed to read config file at '{path}': {source}")]
+    #[error("failed to read config file at '{path}'")]
     ReadFile {
         path: String,
         #[source]
@@ -93,14 +93,14 @@ pub enum GraphError {
 
 #[derive(Debug, Error)]
 pub enum TaskError {
-    #[error("failed to spawn command for task '{task}': {source}")]
+    #[error("failed to spawn command for task '{task}'")]
     Spawn {
         task: String,
         #[source]
         source: std::io::Error,
     },
 
-    #[error("failed to wait for task '{task}' to finish: {source}")]
+    #[error("failed to wait for task '{task}' to finish")]
     Wait {
         task: String,
         #[source]
@@ -110,7 +110,7 @@ pub enum TaskError {
     #[error("task '{task}' exited with status {code}")]
     Failed { task: String, code: i32 },
 
-    #[error("failed to read output of task '{task}': {source}")]
+    #[error("failed to read output of task '{task}'")]
     ReadOutput {
         task: String,
         #[source]
@@ -139,7 +139,7 @@ pub enum TaskError {
 
 #[derive(Debug, Error)]
 pub enum EnvError {
-    #[error("failed to read env file: {source}")]
+    #[error("failed to read env file")]
     ReadFile {
         #[from]
         source: std::io::Error,
@@ -157,7 +157,7 @@ pub enum WatcherError {
     #[error("failed to initialize file watcher: {0}")]
     Init(#[from] notify::Error),
 
-    #[error("failed to resolve project root '{path}': {source}")]
+    #[error("failed to resolve project root '{path}'")]
     ResolveRoot {
         path: String,
         #[source]
@@ -170,21 +170,21 @@ pub enum WatcherError {
 
 #[derive(Debug, Error)]
 pub enum CacheError {
-    #[error("failed to expand input glob '{pattern}': {source}")]
+    #[error("failed to expand input glob '{pattern}'")]
     Glob {
         pattern: String,
         #[source]
         source: glob::PatternError,
     },
 
-    #[error("failed to read input file '{path}': {source}")]
+    #[error("failed to read input file '{path}'")]
     ReadInput {
         path: String,
         #[source]
         source: std::io::Error,
     },
 
-    #[error("failed to write cache file '{path}': {source}")]
+    #[error("failed to write cache file '{path}'")]
     Write {
         path: String,
         #[source]

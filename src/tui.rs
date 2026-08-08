@@ -370,7 +370,7 @@ impl Ui for PlainUi {
     fn push_log(&mut self, task_id: &TaskId, line: String, stream: LogStream) {
         match stream {
             LogStream::Stdout => println!("[{task_id}] {line}"),
-            LogStream::Stderr => println!("[{task_id}] \x1b[31m⚠ {line}\x1b[0m"),
+            LogStream::Stderr => eprintln!("[{task_id}] \x1b[31m⚠ {line}\x1b[0m"),
         }
     }
 

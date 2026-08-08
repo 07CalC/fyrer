@@ -22,6 +22,7 @@ pub struct Orchestrator {
     pending_restart: HashSet<TaskId>,
     total_tasks: usize,
     finished: usize,
+    run_finished: bool,
     should_quit: bool,
     auto_quit: bool,
     ui: Box<dyn Ui>,
@@ -43,6 +44,7 @@ impl Orchestrator {
             pending_restart: HashSet::new(),
             total_tasks,
             finished: 0,
+            run_finished: false,
             should_quit: false,
             auto_quit: false,
             ui,
@@ -186,6 +188,16 @@ impl Orchestrator {
                 }
             }
             AppEvent::Tick => {}
+            AppEvent::RunFinished => {
+                self.run_finished = true;
+                self.maybe_quit();
+            }
+        }
+    }
+
+    fn maybe_quit(&mut self) {
+        if self.auto_quit && self.run_finished && self.finished >= self.total_tasks {
+            self.should_quit = true;
         }
     }
 
@@ -213,9 +225,7 @@ impl Orchestrator {
 
     fn mark_finished(&mut self) {
         self.finished += 1;
-        if self.auto_quit && self.finished >= self.total_tasks {
-            self.should_quit = true;
-        }
+        self.maybe_quit();
     }
 }
 pub async fn run(

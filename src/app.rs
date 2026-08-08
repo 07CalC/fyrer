@@ -66,17 +66,23 @@ impl App {
     }
 
     async fn run(&self, levels: Vec<Vec<(TaskId, Vec<TaskId>)>>, no_tui: bool) -> Result<()> {
-        let ui: Box<dyn Ui> = if no_tui {
-            Box::new(PlainUi::default())
+        let (ui, auto_quit): (Box<dyn Ui>, bool) = if no_tui {
+            (Box::new(PlainUi::default()), true)
         } else {
-            Box::new(Tui::new()?)
+            match Tui::new() {
+                Ok(tui) => (Box::new(tui), false),
+                Err(e) => {
+                    eprintln!("warning: could not start the TUI ({e}); falling back to plain output");
+                    (Box::new(PlainUi::default()), true)
+                }
+            }
         };
         orchestrator::run(
             levels,
             self.task_map.clone(),
             self.cache_provider.clone(),
             ui,
-            no_tui,
+            auto_quit,
         )
         .await
     }

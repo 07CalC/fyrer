@@ -47,6 +47,10 @@ pub enum AppEvent {
         task_id: TaskId,
         command_sender: Sender<TaskCommand>,
     },
+    /// Sent once the scheduler has finished every level, including all
+    /// post-completion work (e.g. cache saves). Auto-quit waits for it so
+    /// final messages are always shown.
+    RunFinished,
     Tick,
 }
 
