@@ -12,6 +12,8 @@ use crate::{
     tasks::{Task, TaskId},
 };
 
+pub static DEFAULT_FYRER_DIR: &str = ".fyrer";
+
 pub type TaskMap = HashMap<TaskId, Task>;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

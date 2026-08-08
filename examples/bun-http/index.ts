@@ -4,4 +4,5 @@ while (true) {
   console.warn("This is a warning message.");
   console.error("This is an error message.");
   await Bun.sleep(1000)
+
 }
