@@ -4,6 +4,7 @@ use anyhow::Result;
 
 use crate::{
     FyrerConfig, TaskId,
+    cache::{CacheProvider, build_cache_provider},
     cli::Command,
     config::{TaskMap, TaskResolver},
     graph::TaskGraph,
@@ -14,6 +15,9 @@ use crate::{
 pub struct App {
     pub task_map: Arc<TaskMap>,
     pub task_graph: TaskGraph,
+    /// Shared cache backend, built once from config and passed through the
+    /// entire run pipeline.
+    pub cache_provider: Arc<dyn CacheProvider>,
 }
 
 impl App {
@@ -28,9 +32,11 @@ impl App {
         let task_map = Arc::new(config.create_task_map()?);
         let task_graph = TaskGraph::new(&task_map)?;
         task_graph.validate()?;
+        let cache_provider = build_cache_provider(&config.cache.provider);
         Ok(Self {
             task_map,
             task_graph,
+            cache_provider,
         })
     }
 
@@ -51,6 +57,7 @@ impl App {
                 dry_run,
                 no_tui,
             } => {
+                let start_time = std::time::Instant::now();
                 let task_ids = self.task_map.resolve(task.as_deref())?;
                 let levels = self.task_graph.get_orders(&task_ids)?;
                 if dry_run {
@@ -62,6 +69,8 @@ impl App {
                     return Ok(());
                 }
                 self.run(levels, no_tui).await?;
+                let elapsed = start_time.elapsed();
+                println!("All tasks completed in {:.2?}", elapsed);
                 Ok(())
             }
         }
@@ -75,7 +84,14 @@ impl App {
         };
         // The TUI keeps running so the user can inspect results; non-TUI
         // output exits as soon as all tasks have finished.
-        orchestrator::run(levels, self.task_map.clone(), ui, no_tui).await
+        orchestrator::run(
+            levels,
+            self.task_map.clone(),
+            self.cache_provider.clone(),
+            ui,
+            no_tui,
+        )
+        .await
     }
 
     fn list_tasks(&self) {
@@ -95,4 +111,3 @@ impl App {
         }
     }
 }
-

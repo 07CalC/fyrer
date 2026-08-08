@@ -19,9 +19,16 @@ use std::{
 /// a dependency is unknown/malformed, a circular dependency exists, or an
 /// input file cannot be read.
 pub fn get_hash(task: &Task, task_map: &TaskMap) -> Result<String> {
+    let start = std::time::Instant::now();
     let mut memo = HashMap::new();
     let mut visiting = HashSet::new();
-    task_hash(&task.id(), task_map, &mut memo, &mut visiting)
+    let hash = task_hash(&task.id(), task_map, &mut memo, &mut visiting);
+    println!(
+        "Computed hash for task '{}' in {:?}",
+        task.id(),
+        start.elapsed()
+    );
+    hash
 }
 
 /// Computes the fingerprint for a single task, hashing dependencies first.
@@ -254,4 +261,3 @@ mod tests {
         assert!(get_hash(&map[&TaskId::new("m", "a")], &map).is_err());
     }
 }
-

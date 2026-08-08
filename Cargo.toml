@@ -14,6 +14,7 @@ categories = ["command-line-utilities", "development-tools"]
 ansi-to-tui = "8.0.1"
 anyhow = "1.0.104"
 blake3 = "1.8.6"
+chrono = "0.4.45"
 clap = { version = "4.5", features = ["derive"] }
 color-eyre = "0.6.5"
 colored = "3.1.1"

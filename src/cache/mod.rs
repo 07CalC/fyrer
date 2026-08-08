@@ -5,6 +5,8 @@ pub mod cache;
 pub mod cache_provider;
 pub mod local;
 
+pub use cache_provider::{CacheProvider, build_cache_provider};
+
 #[derive(Deserialize, Serialize, Debug, Clone)]
 pub struct CacheMetadata {
     pub task: String,

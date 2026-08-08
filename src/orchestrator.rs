@@ -6,6 +6,7 @@ use tokio::sync::mpsc;
 
 use crate::{
     TaskId,
+    cache::CacheProvider,
     config::TaskMap,
     events::{AppEvent, LogStream, TaskCommand},
     scheduler::{initialize_pipeline, schedule},
@@ -122,6 +123,10 @@ impl Orchestrator {
                     self.mark_finished();
                 }
             }
+            AppEvent::TaskCacheHit { task_id } => {
+                self.statuses.insert(task_id, TaskStatus::CacheHit);
+                self.mark_finished();
+            }
             AppEvent::TaskFailed {
                 task_id,
                 exit_code,
@@ -234,6 +239,7 @@ impl Orchestrator {
 pub async fn run(
     levels: Vec<Vec<(TaskId, Vec<TaskId>)>>,
     task_map: Arc<TaskMap>,
+    cache_provider: Arc<dyn CacheProvider>,
     ui: Box<dyn Ui>,
     auto_quit: bool,
 ) -> Result<()> {
@@ -243,7 +249,10 @@ pub async fn run(
     initialize_pipeline(&event_tx);
     let scheduler_tx = event_tx.clone();
     let scheduler_task_map = task_map.clone();
-    tokio::spawn(async move { schedule(levels, scheduler_task_map, scheduler_tx).await });
+    let scheduler_cache = cache_provider.clone();
+    tokio::spawn(async move {
+        schedule(levels, scheduler_task_map, scheduler_cache, scheduler_tx).await;
+    });
 
     let mut orchestrator = Orchestrator::new(all_task_ids, task_map, ui).with_auto_quit(auto_quit);
     orchestrator.run(event_rx, event_tx).await

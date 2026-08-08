@@ -333,6 +333,7 @@ impl Tui {
                             TaskStatus::Waiting => ("○", Color::DarkGray),
                             TaskStatus::Running => ("●", Color::Green),
                             TaskStatus::Complete => ("✓", Color::Cyan),
+                            TaskStatus::CacheHit => ("⚡", Color::Rgb(180, 120, 255)),
                             TaskStatus::Failed { .. } => ("✗", Color::Red),
                             TaskStatus::Restarting => ("↻", Color::Yellow),
                         };

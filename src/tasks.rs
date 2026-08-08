@@ -27,6 +27,8 @@ pub enum TaskStatus {
     Running,
     Waiting,
     Complete,
+    /// Task was skipped because its outputs were already fresh in the cache.
+    CacheHit,
     Failed { code: i32, error: Option<String> },
     Restarting,
 }
@@ -58,6 +60,11 @@ impl Task {
         TaskId::new(&self.project_name, &self.task_name)
     }
 
+    /// Spawns the task as an async child process. Stdout and stderr are
+    /// piped to the event bus. Returns a [`SpawnedTask`] that holds the
+    /// join handle (resolves to `true` on success) and a command channel.
+    ///
+    /// Cache checking and saving are the caller's (scheduler's) responsibility.
     pub fn spawn(&self, event_bus_sender: Sender<AppEvent>) -> Result<SpawnedTask> {
         let (command_sender, mut command_receiver) = tokio::sync::mpsc::channel(1);
         let task_id = self.id();
@@ -79,7 +86,6 @@ impl Task {
         // pipe stdout
         let tx = event_bus_sender.clone();
         let id = task_id.clone();
-
         let stdout_handle = tokio::spawn(async move {
             let mut lines = BufReader::new(stdout).lines();
             while let Ok(Some(line)) = lines.next_line().await {
@@ -107,19 +113,18 @@ impl Task {
             }
         });
 
-        // main loop, owns the child and handle stdin
+        // Main loop: owns the child process and handles stdin commands.
         let handle = tokio::spawn(async move {
             loop {
                 tokio::select! {
                     status = child.wait() => {
-                        let success = match status {
-                            Ok(s) if s.success() => true,
-                            _ => false,
-                        };
+                        let success = matches!(status, Ok(s) if s.success());
                         let _ = stdout_handle.await;
                         let _ = stderr_handle.await;
                         let event = match status {
-                            Ok(s) if s.success() => AppEvent::TaskComplete { task_id: task_id.clone() },
+                            Ok(s) if s.success() => AppEvent::TaskComplete {
+                                task_id: task_id.clone(),
+                            },
                             Ok(s) => AppEvent::TaskFailed {
                                 task_id: task_id.clone(),
                                 exit_code: s.code().unwrap_or(-1),
@@ -138,7 +143,7 @@ impl Task {
                         match cmd {
                             TaskCommand::Stdin(input) => {
                                 if let Some(ref mut w) = stdin {
-                                    let _= w.write_all(input.as_bytes()).await;
+                                    let _ = w.write_all(input.as_bytes()).await;
                                     let _ = w.flush().await;
                                 }
                             }
@@ -150,15 +155,15 @@ impl Task {
                                     }
                                 }
                                 let _ = child.kill().await;
-                                // we don't break here, because we want to wait for the
-                                // child to exit and send the event in the next
-                                // iteration of the loop via child.wait() branch
+                                // Don't break: wait for child.wait() in the next
+                                // iteration so the final event is always sent.
                             }
                         }
                     }
                 }
             }
         });
+
         Ok(SpawnedTask {
             handle,
             command_sender,
@@ -198,6 +203,7 @@ impl TaskId {
     pub fn project_name(&self) -> &str {
         &self.project_name
     }
+
     #[must_use]
     pub fn task_name(&self) -> &str {
         &self.task_name

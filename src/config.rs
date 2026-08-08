@@ -12,6 +12,29 @@ use crate::{
     tasks::{Task, TaskId},
 };
 
+/// Which cache storage backend to use.
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
+#[serde(rename_all = "lowercase")]
+pub enum CacheProviderKind {
+    /// Store cache artifacts on the local filesystem under `.fyrer/cache/`.
+    #[default]
+    Local,
+}
+
+/// Top-level cache configuration block in the YAML config file.
+///
+/// ```yaml
+/// cache:
+///   provider: local
+/// ```
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(deny_unknown_fields)]
+pub struct CacheConfig {
+    /// Which provider backend to use. Defaults to `local`.
+    #[serde(default)]
+    pub provider: CacheProviderKind,
+}
+
 pub static DEFAULT_FYRER_DIR: &str = ".fyrer";
 
 pub type TaskMap = HashMap<TaskId, Task>;
@@ -24,6 +47,9 @@ pub struct FyrerConfig {
     #[serde(default = "default_env_map")]
     pub env: EnvMap,
     pub projects: Vec<ProjectConfig>,
+    /// Cache backend configuration.
+    #[serde(default)]
+    pub cache: CacheConfig,
 }
 
 /// A single project in the monorepo.
