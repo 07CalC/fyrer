@@ -39,17 +39,7 @@ impl CacheProvider for LocalCacheProvider {
         let mut tar = tar::Builder::new(encoder);
         for output in source {
             if output.exists() {
-                let name = output.file_name().ok_or_else(|| {
-                    anyhow!(
-                        "Failed to get file name for output: {:?}",
-                        output.to_string_lossy()
-                    )
-                })?;
-                if output.is_file() {
-                    tar.append_path_with_name(output, name)?;
-                } else if output.is_dir() {
-                    tar.append_dir_all(name, output)?;
-                }
+                tar.append_dir_all(output, output)?;
             }
         }
         let encoder = tar.into_inner()?;
