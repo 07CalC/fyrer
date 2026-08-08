@@ -14,9 +14,6 @@ use crate::{
     tui::Ui,
 };
 
-/// Owns all mutable run state and drives the event loop, delegating rendering
-/// to a [`Ui`] backend. The orchestrator is fully decoupled from the user
-/// interface; which backend is used is decided by whoever constructs it.
 pub struct Orchestrator {
     task_ids: Vec<TaskId>,
     task_map: Arc<TaskMap>,
@@ -52,20 +49,12 @@ impl Orchestrator {
         }
     }
 
-    /// Sets whether the run exits once every task has finished. Interactive
-    /// UIs typically keep running until the user quits; non-interactive ones
-    /// finish as soon as the work is done.
     #[must_use]
     pub fn with_auto_quit(mut self, auto_quit: bool) -> Self {
         self.auto_quit = auto_quit;
         self
     }
 
-    /// Runs the event loop until a quit condition is met.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the UI backend fails to render.
     pub async fn run(
         &mut self,
         mut event_rx: mpsc::Receiver<AppEvent>,
@@ -229,13 +218,6 @@ impl Orchestrator {
         }
     }
 }
-
-/// Convenience entry point: builds the event pipeline and runs the
-/// orchestrator with the given UI backend over the computed task levels.
-///
-/// # Errors
-///
-/// Returns an error if the UI backend fails to render or shut down.
 pub async fn run(
     levels: Vec<Vec<(TaskId, Vec<TaskId>)>>,
     task_map: Arc<TaskMap>,

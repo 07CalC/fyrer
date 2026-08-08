@@ -1,5 +1,3 @@
-//! Dependency graph of tasks and topological ordering.
-
 use std::collections::{HashMap, HashSet, VecDeque};
 
 use crate::{
@@ -8,13 +6,11 @@ use crate::{
     tasks::TaskId,
 };
 
-/// A directed acyclic graph of tasks.
 #[derive(Debug, Clone)]
 pub struct TaskGraph {
     nodes: HashMap<TaskId, TaskNode>,
 }
 
-/// A node in the task graph.
 #[derive(Debug, Clone)]
 struct TaskNode {
     id: TaskId,
@@ -22,26 +18,13 @@ struct TaskNode {
     dependents: Vec<TaskId>,
 }
 
-/// Visit state used while detecting cycles with depth-first search.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum VisitState {
-    /// The node is currently on the DFS stack.
     Visiting,
-    /// The node has been fully explored.
     Done,
 }
 
 impl TaskGraph {
-    /// Builds a graph from a task map, resolving all `depends_on` edges.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if a task depends on itself or on a task that does
-    /// not exist.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the task map is internally inconsistent.
     pub fn new(task_map: &TaskMap) -> FyrerResult<Self> {
         let mut nodes: HashMap<TaskId, TaskNode> = task_map
             .keys()
@@ -90,15 +73,6 @@ impl TaskGraph {
         Ok(Self { nodes })
     }
 
-    /// Returns an error if the graph contains a dependency cycle.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if a cycle is detected.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the graph is internally inconsistent.
     pub fn validate(&self) -> FyrerResult<()> {
         let mut states = HashMap::new();
         for node in self.nodes.values() {
@@ -127,18 +101,6 @@ impl TaskGraph {
         has_cycle
     }
 
-    /// Returns the given tasks and their transitive dependencies, grouped
-    /// into topological levels that may be executed concurrently. Each entry
-    /// of a level is the task id together with the resolved dependency ids of
-    /// that task within the run's closure.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if any of the given tasks is not in the graph.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the graph is internally inconsistent.
     pub fn get_orders(&self, tasks: &[TaskId]) -> FyrerResult<Vec<Vec<(TaskId, Vec<TaskId>)>>> {
         for id in tasks {
             if !self.nodes.contains_key(id) {
@@ -155,7 +117,6 @@ impl TaskGraph {
             }
         }
 
-        // Resolve each relevant task to the dependencies that are also relevant.
         let deps: HashMap<TaskId, Vec<TaskId>> = relevant
             .iter()
             .map(|id| {
@@ -169,7 +130,6 @@ impl TaskGraph {
             })
             .collect();
 
-        // Compute the in-degree of every node in the relevant subgraph.
         let mut in_degree: HashMap<TaskId, usize> =
             deps.iter().map(|(id, ds)| (id.clone(), ds.len())).collect();
 
@@ -269,10 +229,7 @@ mod tests {
 
         assert_eq!(order.len(), 2);
         assert_eq!(order[0], vec![(TaskId::new("ui", "build"), vec![])]);
-        let second: Vec<String> = order[1]
-            .iter()
-            .map(|(id, _)| id.to_string())
-            .collect();
+        let second: Vec<String> = order[1].iter().map(|(id, _)| id.to_string()).collect();
         assert!(second.contains(&"web:build".to_string()));
         assert!(second.contains(&"web:test".to_string()));
         for (_, deps) in &order[1] {

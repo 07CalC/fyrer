@@ -19,34 +19,15 @@ use crate::tasks::TaskId;
 
 use super::tasks::TaskStatus;
 
-/// Generic interface implemented by every user-interface backend that renders
-/// the orchestrator's state. This keeps the TUI fully decoupled from the
-/// orchestrator, making it possible to swap in alternative backends (e.g. a
-/// plain, non-interactive output) without touching orchestration logic.
 pub trait Ui {
-    /// Pushes a new log line for the given task. Each backend stores or
-    /// displays the line however it sees fit.
     fn push_log(&mut self, task_id: &TaskId, line: String, stream: LogStream);
 
-    /// Redraws the current task snapshot. Called by the orchestrator after
-    /// every event so the UI always reflects the latest state.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the backend fails to draw to the terminal.
     fn render(&mut self, tasks: &[(TaskId, TaskStatus)]) -> Result<()>;
 
-    /// Moves the selection highlight to the next item, if applicable.
     fn navigate_next(&mut self) {}
 
-    /// Moves the selection highlight to the previous item, if applicable.
     fn navigate_previous(&mut self) {}
 
-    /// Cleans up terminal state when the run ends.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the terminal cannot be restored.
     fn shutdown(&mut self) -> Result<()> {
         Ok(())
     }
@@ -59,41 +40,24 @@ pub trait Ui {
 
 type DefaultBackend = CrosstermBackend<std::io::Stdout>;
 
-/// Cached ANSI-parsed text for a single task's logs, rebuilt only when new
-/// lines arrive or the viewport width changes.
 struct LogCache {
-    /// The parsed ratatui [`Text`], ready to render.
     text: Text<'static>,
-    /// Number of raw lines that were parsed to produce `text`.
     parsed_len: usize,
-    /// Viewport width used when computing `wrapped_height`.
     viewport_width: usize,
-    /// Total visual (wrapped) row count.
     wrapped_height: usize,
 }
 
-/// A full-screen, interactive terminal UI built on ratatui.
 pub struct Tui {
     terminal: Terminal<DefaultBackend>,
     list_state: ListState,
-    /// Raw log lines per task, pushed via [`Ui::push_log`].
     logs: HashMap<TaskId, Vec<String>>,
-    /// Cached parsed text per task; invalidated when new lines arrive.
     cache: HashMap<TaskId, LogCache>,
-    /// Scroll offset from the top of the selected task's log, per task index.
     positions: HashMap<usize, usize>,
-    /// Whether the log view follows the newest output, per task index.
     following: HashMap<usize, bool>,
-    /// Height of the log viewport in lines, updated on every draw.
     viewport: usize,
 }
 
 impl Tui {
-    /// Initialises the terminal for the interactive UI.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the terminal cannot be put into raw mode.
     pub fn new() -> Result<Self> {
         let terminal = ratatui::try_init()?;
         crossterm::execute!(std::io::stdout(), crossterm::event::EnableMouseCapture)?;
@@ -189,9 +153,6 @@ impl Tui {
         let idx = self.list_state.selected().unwrap_or(0);
         self.following.insert(idx, true);
     }
-
-    /// Compute the total number of visual (wrapped) rows a set of log lines
-    /// will occupy when rendered into a viewport of the given width.
     fn wrapped_line_count(text: &Text<'_>, viewport_width: usize) -> usize {
         if viewport_width == 0 {
             return 0;
@@ -209,9 +170,6 @@ impl Tui {
             .sum()
     }
 
-    /// Returns the cached parsed [`Text`] and its wrapped line count for the given
-    /// task, re-parsing only when new lines have been pushed or the viewport
-    /// width has changed.
     fn get_or_parse(
         cache: &mut HashMap<TaskId, LogCache>,
         logs: &HashMap<TaskId, Vec<String>>,
@@ -228,17 +186,12 @@ impl Tui {
             return (cached.text.clone(), cached.wrapped_height);
         }
 
-        // Re-parse: join all lines and parse as a single ANSI stream so that
-        // colour state carries across line boundaries.
         let joined = lines.join("\n");
         let mut text = joined
             .as_str()
             .into_text()
             .unwrap_or_else(|_| Text::raw(joined));
 
-        // Strip `Color::Reset` backgrounds so spans inherit the paragraph's
-        // dark background instead of punching through to the terminal default.
-        // Explicit ANSI background colours are left untouched.
         Self::strip_reset_bg(&mut text);
 
         let wrapped_height = Self::wrapped_line_count(&text, viewport_width);
@@ -255,9 +208,6 @@ impl Tui {
         (text, wrapped_height)
     }
 
-    /// Replaces `Color::Reset` backgrounds with `None` so the span inherits
-    /// the parent widget's background style. Specific colours set by ANSI
-    /// escape codes are kept as-is.
     fn strip_reset_bg(text: &mut Text<'_>) {
         for line in &mut text.lines {
             if line.style.bg == Some(Color::Reset) {
@@ -271,26 +221,17 @@ impl Tui {
         }
     }
 
-    /// Draws the task list and the selected task's logs.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the terminal fails to draw.
     #[allow(clippy::cast_possible_truncation, clippy::too_many_lines)]
     pub fn render_layout(
         &mut self,
         tasks: &[(String, TaskStatus)],
         selected_task_id: Option<&TaskId>,
     ) -> Result<()> {
-        // Compute usable inner rect bounds (accounting for task list width, footer, and block borders).
-        let (usable_width, usable_height) = self
-            .terminal
-            .size()
-            .map_or((80, 24), |s| {
-                let w = usize::from(s.width.saturating_sub(27)); // 25 left + 2 border
-                let h = usize::from(s.height.saturating_sub(3));  // 1 footer + 2 border
-                (w.max(1), h.max(1))
-            });
+        let (usable_width, usable_height) = self.terminal.size().map_or((80, 24), |s| {
+            let w = usize::from(s.width.saturating_sub(27)); // 25 left + 2 border
+            let h = usize::from(s.height.saturating_sub(3)); // 1 footer + 2 border
+            (w.max(1), h.max(1))
+        });
 
         self.viewport = usable_height;
 
@@ -302,7 +243,6 @@ impl Tui {
 
         let selected_idx = self.list_state.selected().unwrap_or(0);
 
-        // Clamp / follow scroll position.
         let max_offset = total_wrapped.saturating_sub(self.viewport);
         let pos = self.positions.entry(selected_idx).or_insert(0);
         if *self.following.entry(selected_idx).or_insert(true) {
@@ -317,7 +257,6 @@ impl Tui {
 
         self.terminal
             .draw(|f| {
-                // ── Top-level layout: main area + 1-row keybinds bar ──
                 let [main_area, footer_area] =
                     Layout::vertical([Constraint::Min(0), Constraint::Length(1)]).areas(f.area());
 
@@ -325,7 +264,6 @@ impl Tui {
                     Layout::horizontal([Constraint::Length(25), Constraint::Min(0)])
                         .areas(main_area);
 
-                // ── Task list with coloured status symbols ──
                 let items: Vec<ListItem> = tasks
                     .iter()
                     .map(|(name, status)| {
@@ -350,7 +288,6 @@ impl Tui {
                     .highlight_symbol("> ");
                 f.render_stateful_widget(list, left, &mut self.list_state);
 
-                // ── Log pane ──
                 let log_bg = Color::Rgb(15, 15, 20);
 
                 let paragraph = Paragraph::new(text.clone())
@@ -368,7 +305,6 @@ impl Tui {
                     .viewport_content_length(self.viewport);
                 f.render_stateful_widget(scrollbar, right, &mut scrollbar_state);
 
-                // ── Keybinds footer ──
                 let keybinds = Line::from(vec![
                     Span::styled(
                         " q",
@@ -427,8 +363,6 @@ impl Tui {
     }
 }
 
-/// A minimal, non-interactive backend that prints each task's output to
-/// stdout as it arrives. Used when the interactive TUI is disabled.
 #[derive(Default)]
 pub struct PlainUi;
 

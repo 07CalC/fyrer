@@ -2,21 +2,7 @@ use std::{collections::HashMap, path::Path};
 
 use crate::error::{EnvError, FyrerError, FyrerResult};
 
-/// A map of environment variable names to values.
 pub type EnvMap = HashMap<String, String>;
-
-/// Computes the final environment for a task.
-///
-/// The project level env consists global env already, the Precedence (low to high) is as follows:
-///
-/// 1. Global environment variables (injected to every proejct every task)
-/// 2. Project level env variables (from `env` field in project config)
-/// 3. `.env` file variables (from `.env` file in project root)
-/// 4. Task level env variables (from `env` field in task config)
-///
-/// # Errors
-///
-/// Returns an error if the env file exists but cannot be read.
 pub fn get_task_env_var(
     project_env: &EnvMap,
     task_env: &EnvMap,
@@ -30,7 +16,6 @@ pub fn get_task_env_var(
     Ok(env)
 }
 
-/// Merges `overrides` on top of `base`.
 #[must_use]
 pub fn merge(base: &EnvMap, overrides: &EnvMap) -> EnvMap {
     let mut merged = base.clone();
@@ -38,23 +23,12 @@ pub fn merge(base: &EnvMap, overrides: &EnvMap) -> EnvMap {
     merged
 }
 
-/// Reads a `.env` file from disk.
-///
-/// returns a map of environment variable names to values. Blank lines and lines starting
-/// with `#` are ignored.
-///
-/// # Errors
-///
-/// Returns an error if the file cannot be read.
 pub fn read_env_file(path: &Path) -> FyrerResult<EnvMap> {
     let content = std::fs::read_to_string(path)
         .map_err(|source| FyrerError::Env(EnvError::ReadFile { source }))?;
     Ok(parse_env(&content))
 }
 
-/// Parses `KEY=VALUE` lines from a `.env` string.
-///
-/// Blank lines and lines starting with `#` are ignored.
 #[must_use]
 pub fn parse_env(env_str: &str) -> EnvMap {
     let mut env_map = EnvMap::new();

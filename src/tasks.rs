@@ -27,7 +27,6 @@ pub enum TaskStatus {
     Running,
     Waiting,
     Complete,
-    /// Task was skipped because its outputs were already fresh in the cache.
     CacheHit,
     Failed { code: i32, error: Option<String> },
     Restarting,
@@ -60,11 +59,6 @@ impl Task {
         TaskId::new(&self.project_name, &self.task_name)
     }
 
-    /// Spawns the task as an async child process. Stdout and stderr are
-    /// piped to the event bus. Returns a [`SpawnedTask`] that holds the
-    /// join handle (resolves to `true` on success) and a command channel.
-    ///
-    /// Cache checking and saving are the caller's (scheduler's) responsibility.
     pub fn spawn(&self, event_bus_sender: Sender<AppEvent>) -> Result<SpawnedTask> {
         let (command_sender, mut command_receiver) = tokio::sync::mpsc::channel(1);
         let task_id = self.id();

@@ -15,18 +15,13 @@ use crate::{
 pub struct App {
     pub task_map: Arc<TaskMap>,
     pub task_graph: TaskGraph,
-    /// Shared cache backend, built once from config and passed through the
-    /// entire run pipeline.
+    /// shared cache provider for whole lifetime of the appp run, we will be adding more cache
+    /// providers in future, starting with s3 compatible storages, currently only local cache
+    /// provider is supported
     pub cache_provider: Arc<dyn CacheProvider>,
 }
 
 impl App {
-    /// Loads configuration and builds the task graph.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the config file cannot be read, parsed, or the
-    /// resulting task graph fails validation.
     pub fn init(path: impl AsRef<Path>) -> Result<Self> {
         let config = FyrerConfig::new_from_path(path)?;
         let task_map = Arc::new(config.create_task_map()?);
@@ -40,12 +35,6 @@ impl App {
         })
     }
 
-    /// Dispatches the parsed CLI command.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if task resolution, graph ordering, or the run itself
-    /// fails.
     pub async fn start(&mut self, command: Command) -> Result<()> {
         match command {
             Command::List => {
@@ -82,8 +71,6 @@ impl App {
         } else {
             Box::new(Tui::new()?)
         };
-        // The TUI keeps running so the user can inspect results; non-TUI
-        // output exits as soon as all tasks have finished.
         orchestrator::run(
             levels,
             self.task_map.clone(),
@@ -95,6 +82,7 @@ impl App {
     }
 
     fn list_tasks(&self) {
+        // used BTreeMap to sort projects and tasks alphabetically
         let mut projects: BTreeMap<&str, Vec<&str>> = BTreeMap::new();
         for task in self.task_map.values() {
             projects

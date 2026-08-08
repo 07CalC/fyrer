@@ -12,25 +12,16 @@ use crate::{
     tasks::{Task, TaskId},
 };
 
-/// Which cache storage backend to use.
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
 #[serde(rename_all = "lowercase")]
 pub enum CacheProviderKind {
-    /// Store cache artifacts on the local filesystem under `.fyrer/cache/`.
     #[default]
     Local,
 }
 
-/// Top-level cache configuration block in the YAML config file.
-///
-/// ```yaml
-/// cache:
-///   provider: local
-/// ```
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(deny_unknown_fields)]
 pub struct CacheConfig {
-    /// Which provider backend to use. Defaults to `local`.
     #[serde(default)]
     pub provider: CacheProviderKind,
 }
@@ -43,70 +34,50 @@ pub type TaskMap = HashMap<TaskId, Task>;
 #[serde(deny_unknown_fields)]
 pub struct FyrerConfig {
     pub version: u32,
-    /// Environment variables shared by every project.
     #[serde(default = "default_env_map")]
     pub env: EnvMap,
     pub projects: Vec<ProjectConfig>,
-    /// Cache backend configuration.
     #[serde(default)]
     pub cache: CacheConfig,
 }
 
-/// A single project in the monorepo.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ProjectConfig {
-    /// Unique project name, used as the first half of every task id.
     pub name: String,
-    /// Relative root directory of the project.
     pub root: PathBuf,
-    /// Environment variables shared by every task in the project.
     #[serde(default = "default_env_map")]
     pub env: EnvMap,
-    /// Path of the project's `.env` file, relative to `root`.
     #[serde(default = "default_env_path")]
     pub env_path: String,
-    /// The tasks defined in this project, keyed by task name.
     #[serde(default = "default_tasks")]
     pub tasks: HashMap<String, TaskConfig>,
 }
 
-/// A task definition within a project.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct TaskConfig {
-    /// The shell command to run.
     #[serde(default = "default_cmd")]
     pub cmd: String,
-    /// Names of tasks that must run first, either `name` or `project:name`.
     #[serde(default = "default_vec_string")]
     pub depends_on: Vec<String>,
-    /// Glob patterns of files watched for changes.
     #[serde(default = "default_vec_string")]
     pub inputs: Vec<String>,
-    /// Glob patterns of files produced by the task.
     #[serde(default = "default_vec_string")]
     pub outputs: Vec<String>,
-    /// Glob patterns of files excluded from watching.
     #[serde(default = "default_vec_string")]
     pub ignore: Vec<String>,
-    /// Whether the task may be skipped when its outputs are already fresh.
     #[serde(default = "default_bool")]
     pub cache: bool,
-    /// How and when the task should be restarted.
     #[serde(default = "default_restart")]
     pub restart: RestartConfig,
-    /// Environment variables that override the root and project-level env.
     #[serde(default = "default_env_map")]
     pub env: EnvMap,
 }
 
-/// Restart policy for a task.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RestartConfig {
-    /// When the task should be restarted.
     pub strategy: RestartStrategy,
-    /// Debounce delay in milliseconds before restarting.
     pub delay: Option<u64>,
 }
 
@@ -119,25 +90,15 @@ impl Default for RestartConfig {
     }
 }
 
-/// When a task is restarted.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 pub enum RestartStrategy {
-    /// Restart whenever a watched input file changes.
     FileChange,
-    /// Restart after the process exits with a failure.
     OnFailure,
-    /// Never restart the task.
     #[default]
     Never,
 }
 
 impl FyrerConfig {
-    /// Loads and validates a configuration from a YAML file.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the file cannot be read, is not valid YAML, or
-    /// fails validation.
     pub fn new_from_path(path: impl AsRef<Path>) -> FyrerResult<Self> {
         let content = std::fs::read_to_string(path.as_ref()).map_err(|source| {
             FyrerError::Config(ConfigError::ReadFile {
@@ -148,23 +109,12 @@ impl FyrerConfig {
         Self::new_from_str(&content)
     }
 
-    /// Parses and validates a configuration from a YAML string.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the content is not valid YAML or fails validation.
     pub fn new_from_str(content: &str) -> FyrerResult<Self> {
         let config: Self = serde_yaml::from_str(content)
             .map_err(|source| FyrerError::Config(ConfigError::ParseYaml(source)))?;
         config.validate()?;
         Ok(config)
     }
-
-    /// Builds the resolved task map from the raw configuration.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if a project's env file cannot be read.
     pub fn create_task_map(&self) -> FyrerResult<TaskMap> {
         let mut task_map = HashMap::new();
         for project in &self.projects {

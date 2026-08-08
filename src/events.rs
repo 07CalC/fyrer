@@ -35,7 +35,6 @@ pub enum AppEvent {
         exit_code: i32,
         error: Option<String>,
     },
-    /// Emitted by the scheduler when a task is skipped due to a cache hit.
     TaskCacheHit {
         task_id: TaskId,
     },

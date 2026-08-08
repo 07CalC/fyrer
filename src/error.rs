@@ -1,7 +1,5 @@
 use thiserror::Error;
 
-use crate::logger::LogMessage;
-
 pub type FyrerResult<T> = Result<T, FyrerError>;
 
 #[derive(Debug, Error)]
@@ -20,9 +18,6 @@ pub enum FyrerError {
 
     #[error("state error: {0}")]
     State(#[from] StateError),
-
-    #[error("logger error: {0}")]
-    Logger(#[from] LoggerError),
 
     #[error("watcher error: {0}")]
     Watch(#[from] WatcherError),
@@ -158,16 +153,6 @@ pub enum StateError {
 }
 
 #[derive(Debug, Error)]
-pub enum LoggerError {
-    #[error("failed to send log message for task '{task}': {source}")]
-    Send {
-        task: String,
-        #[source]
-        source: tokio::sync::mpsc::error::SendError<LogMessage>,
-    },
-}
-
-#[derive(Debug, Error)]
 pub enum WatcherError {
     #[error("failed to initialize file watcher: {0}")]
     Init(#[from] notify::Error),
@@ -181,9 +166,6 @@ pub enum WatcherError {
 
     #[error("project root '{0}' is not a directory")]
     MissingRoot(String),
-
-    #[error("failed to send log message: {0}")]
-    LogSend(#[from] tokio::sync::mpsc::error::SendError<LogMessage>),
 }
 
 #[derive(Debug, Error)]

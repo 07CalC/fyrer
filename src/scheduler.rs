@@ -15,22 +15,10 @@ use crate::{
     events::AppEvent,
 };
 
-/// Spawns the background tasks that feed the event bus: a periodic ticker and
-/// keyboard input collector, plus a Ctrl-C handler. These must be started once,
-/// before the orchestrator event loop begins.
 pub fn initialize_pipeline(event_bus_sender: &tokio::sync::mpsc::Sender<AppEvent>) {
     spawn_input_collector(event_bus_sender.clone());
     spawn_ctrl_c_handler(event_bus_sender.clone());
 }
-
-/// Spawns every task across the dependency levels, waiting for each level to
-/// finish before starting the next. Tasks whose dependencies have already
-/// failed are skipped (cascading the failure to their own dependents).
-///
-/// Before spawning a task the scheduler checks the cache: if a valid entry
-/// exists it restores the outputs and emits [`AppEvent::TaskCacheHit`] instead
-/// of actually running the task. After each successful run the outputs are
-/// saved so subsequent runs hit the cache.
 pub async fn schedule(
     levels: Vec<Vec<(TaskId, Vec<TaskId>)>>,
     task_map: Arc<TaskMap>,
@@ -40,7 +28,6 @@ pub async fn schedule(
     let mut failed: HashSet<TaskId> = HashSet::new();
 
     for batch in levels {
-        // Each entry: (task_id, cache_hash_or_empty, start_instant, join_handle)
         let mut handles: Vec<(
             TaskId,
             String,
@@ -49,7 +36,6 @@ pub async fn schedule(
         )> = Vec::with_capacity(batch.len());
 
         for (task_id, deps) in batch {
-            // Cascade failures from dependencies.
             if deps.iter().any(|dep| failed.contains(dep)) {
                 failed.insert(task_id.clone());
                 let _ = event_bus_sender
@@ -64,11 +50,9 @@ pub async fn schedule(
 
             let task = &task_map[&task_id];
 
-            // ── Cache check (only for tasks that opt in) ──────────────────
             if task.cache {
                 match get_hash(task, &task_map) {
                     Err(e) => {
-                        // Hash computation failed — log and fall through to run.
                         let _ = event_bus_sender
                             .send(AppEvent::Stderr {
                                 task_id: task_id.clone(),
@@ -93,10 +77,9 @@ pub async fn schedule(
                                         task_id: task_id.clone(),
                                     })
                                     .await;
-                                continue; // skip spawning
+                                continue;
                             }
                             Ok(false) => {
-                                // Entry found but not restorable — fall through.
                                 let _ = event_bus_sender
                                     .send(AppEvent::Stderr {
                                         task_id: task_id.clone(),
@@ -106,7 +89,6 @@ pub async fn schedule(
                                     .await;
                             }
                             Err(e) => {
-                                // Restore error — log as warning and fall through.
                                 let _ = event_bus_sender
                                     .send(AppEvent::Stderr {
                                         task_id: task_id.clone(),
@@ -117,16 +99,13 @@ pub async fn schedule(
                                     .await;
                             }
                         }
-                        // Fall through: run the task normally
                         spawn_task(task, task_id, hash, &event_bus_sender, &mut handles).await;
                     }
                     Ok(hash) => {
-                        // Cache miss — run the task.
                         spawn_task(task, task_id, hash, &event_bus_sender, &mut handles).await;
                     }
                 }
             } else {
-                // Caching disabled for this task — run unconditionally.
                 spawn_task(
                     task,
                     task_id,
@@ -138,7 +117,6 @@ pub async fn schedule(
             }
         }
 
-        // ── Wait for the entire batch and save caches on success ──────────
         for (task_id, hash, started_at, handle) in handles {
             let success = handle.await.unwrap_or(false);
             if !success {
@@ -146,8 +124,6 @@ pub async fn schedule(
                 continue;
             }
 
-            // Only attempt to save if the task opted into caching and we have
-            // a valid hash (non-empty string means hash was computed).
             if hash.is_empty() {
                 continue;
             }
@@ -192,11 +168,6 @@ pub async fn schedule(
         }
     }
 }
-
-// ── Helpers ───────────────────────────────────────────────────────────────────
-
-/// Spawns a single task, sends [`AppEvent::TaskSpawned`], and records its
-/// handle in `handles` for the batch-await loop.
 async fn spawn_task(
     task: &Task,
     task_id: TaskId,
@@ -236,9 +207,6 @@ async fn spawn_task(
     }
 }
 
-/// Resolves the "root" directories/files to archive from a task's output
-/// patterns. Takes the non-glob prefix of each pattern so that whole
-/// directories are archived (e.g. `dist/**/*` → `dist/`).
 fn resolve_output_dirs(task: &Task) -> Vec<PathBuf> {
     task.outputs
         .iter()
@@ -253,7 +221,6 @@ fn resolve_output_dirs(task: &Task) -> Vec<PathBuf> {
         .collect()
 }
 
-/// Returns the current time as seconds since the Unix epoch.
 fn unix_timestamp_secs() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)

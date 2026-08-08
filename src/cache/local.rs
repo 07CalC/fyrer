@@ -7,8 +7,6 @@ use crate::{
     config::DEFAULT_FYRER_DIR,
 };
 
-/// Cache provider that stores artifacts on the local filesystem under
-/// `.fyrer/cache/<key>/`.
 #[derive(Default)]
 pub struct LocalCacheProvider;
 
@@ -89,12 +87,9 @@ impl CacheProvider for LocalCacheProvider {
 
         let cache_dir = cache_root.join(key);
         if cache_dir.exists() {
-            // Idempotent: a concurrent run or retry already wrote this entry.
             return Ok(true);
         }
 
-        // Write to a temp directory first; rename atomically to prevent
-        // partial entries being observed by concurrent readers.
         let temp_dir = tempfile::Builder::new()
             .prefix(&format!(".{key}."))
             .tempdir_in(&cache_root)
@@ -122,11 +117,9 @@ impl CacheProvider for LocalCacheProvider {
         let encoder = tar.into_inner().context("failed to flush tar archive")?;
         encoder.finish().context("failed to finish zstd encoding")?;
 
-        // Publish: rename temp dir to the final location.
         std::fs::rename(temp_dir.path(), &cache_dir)
             .with_context(|| format!("failed to publish cache to '{}'", cache_dir.display()))?;
 
-        // Prevent tempfile from trying to remove the (now-renamed) directory.
         let _ = temp_dir.keep();
 
         Ok(true)

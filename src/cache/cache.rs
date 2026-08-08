@@ -6,18 +6,6 @@ use std::{
     fs,
     path::{Path, PathBuf},
 };
-
-/// Computes a content-addressed, deterministic fingerprint for a task.
-///
-/// The hash covers the task command, project root, sorted environment,
-/// sorted input/output/ignore lists, the resolved contents of input files
-/// (relative path + bytes), and the fingerprints of dependencies.
-///
-/// # Errors
-///
-/// Returns an error when an input glob is invalid or matches no files,
-/// a dependency is unknown/malformed, a circular dependency exists, or an
-/// input file cannot be read.
 pub fn get_hash(task: &Task, task_map: &TaskMap) -> Result<String> {
     let start = std::time::Instant::now();
     let mut memo = HashMap::new();
@@ -31,13 +19,6 @@ pub fn get_hash(task: &Task, task_map: &TaskMap) -> Result<String> {
     hash
 }
 
-/// Computes the fingerprint for a single task, hashing dependencies first.
-///
-/// # Errors
-///
-/// Returns an error when a dependency is unknown or malformed, a circular
-/// dependency exists, an input glob is invalid, an input matches no files,
-/// or an input file cannot be read.
 fn task_hash(
     task_id: &TaskId,
     task_map: &TaskMap,
@@ -121,12 +102,6 @@ fn task_hash(
     Ok(hash)
 }
 
-/// Hashes the resolved files for a single input glob, sorted and filtered.
-///
-/// # Errors
-///
-/// Returns an error when the glob is invalid, the input matches no files,
-/// or an input file cannot be read.
 fn hash_input_files(hasher: &mut blake3::Hasher, task: &Task, input: &str) -> Result<()> {
     let pattern = task.project_root.join(input);
     let pattern_str = pattern.to_string_lossy();

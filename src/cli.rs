@@ -17,11 +17,11 @@ pub struct Cli {
 #[derive(Subcommand)]
 pub enum Command {
     Run {
-        /// The task to run: `project:task`, a bare `task` name, or empty for all.
+        /// the task to run: `project:task`, a bare `task` name, or empty for all.
         task: Option<String>,
         #[arg(long)]
         dry_run: bool,
-        /// Print task output to stdout instead of the interactive TUI.
+        /// print task output to stdout instead of the interactive TUI.
         #[arg(long, default_value_t = false)]
         no_tui: bool,
     },
