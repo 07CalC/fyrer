@@ -59,6 +59,7 @@ impl FyrerConfig {
     /// 2. package root must not be empty
     /// 3. package root must exist
     /// 4. package root must be relative
+    /// 5. env_file must be relative and exist if specified
     fn validate_packages(&self) -> Result<()> {
         let mut package_names = HashSet::new();
         for package in &self.packages {
@@ -92,6 +93,28 @@ impl FyrerConfig {
                 )
                 .into());
             }
+            if let Some(env_file) = &package.env_file {
+                if package.root.join(env_file).is_absolute() {
+                    return Err(error::ConfigError::Validation(
+                        error::ValidationError::AbsolutePath {
+                            project: package.name.clone(),
+                            task: "N/A".to_string(),
+                            actor: "env_file".to_string(),
+                        },
+                    )
+                    .into());
+                }
+                if !package.root.join(env_file).exists() {
+                    return Err(error::ConfigError::Validation(
+                        error::ValidationError::EnvFileNotFound {
+                            project: package.name.clone(),
+                            task: "N/A".to_string(),
+                            file: env_file.clone(),
+                        },
+                    )
+                    .into());
+                }
+            }
         }
         Ok(())
     }
@@ -104,6 +127,7 @@ impl FyrerConfig {
     /// 5. task ignore, inputs, and outputs must be relative and valid glob patterns
     /// 6. task cannot be both cache and persistent
     /// 7. task cannot be both cache and watch
+    /// 8. task env_file must be relative and exist if specified
     fn validate_tasks(&self) -> Result<()> {
         for package in &self.packages {
             let mut task_names = HashSet::new();
@@ -116,6 +140,28 @@ impl FyrerConfig {
                         },
                     )
                     .into());
+                }
+                if let Some(env_file) = &task_config.env_file {
+                    if package.root.join(env_file).is_absolute() {
+                        return Err(error::ConfigError::Validation(
+                            error::ValidationError::AbsolutePath {
+                                project: package.name.clone(),
+                                task: task_name.clone(),
+                                actor: "env_file".to_string(),
+                            },
+                        )
+                        .into());
+                    }
+                    if !package.root.join(env_file).exists() {
+                        return Err(error::ConfigError::Validation(
+                            error::ValidationError::EnvFileNotFound {
+                                project: package.name.clone(),
+                                task: task_name.clone(),
+                                file: env_file.clone(),
+                            },
+                        )
+                        .into());
+                    }
                 }
                 if task_config.cmd.is_empty() {
                     return Err(error::ConfigError::Validation(

@@ -10,6 +10,7 @@ pub mod graph;
 pub mod logs;
 pub mod orchestrator;
 pub mod scheduler;
+pub mod task;
 pub mod tasks;
 pub mod tui;
 

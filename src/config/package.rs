@@ -11,14 +11,10 @@ pub struct PackageConfig {
     pub root: PathBuf,
     #[serde(default)]
     pub env: EnvMap,
-    #[serde(default = "default_env_path")]
-    pub env_file: String,
+    #[serde(default)]
+    pub env_file: Option<String>,
     #[serde(default = "default_tasks")]
     pub tasks: HashMap<String, TaskConfig>,
-}
-
-fn default_env_path() -> String {
-    ".env".to_string()
 }
 
 fn default_tasks() -> HashMap<String, TaskConfig> {

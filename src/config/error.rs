@@ -22,6 +22,13 @@ pub enum ValidationError {
     ProjectRootDoesNotExist { project: String },
     #[error("Absolute path is not allowed for package root: {project}")]
     AbsoluteProjectRoot { project: String },
+    #[error("env_file not found: {file} for task: {task} in package: {project}")]
+    EnvFileNotFound {
+        project: String,
+        task: String,
+        file: String,
+    },
+
     #[error("duplicate task name: {task} in package: {project}")]
     DuplicateTaskName { project: String, task: String },
     #[error("empty command for task: {task} in package: {project}")]
