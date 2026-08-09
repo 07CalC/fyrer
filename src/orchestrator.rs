@@ -192,6 +192,7 @@ impl Orchestrator {
                 self.run_finished = true;
                 self.maybe_quit();
             }
+            _ => {}
         }
     }
 

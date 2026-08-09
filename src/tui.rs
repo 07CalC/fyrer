@@ -78,6 +78,7 @@ impl Ui for Tui {
         let formatted = match stream {
             LogStream::Stdout => line,
             LogStream::Stderr => format!("\x1b[31m⚠ {line}\x1b[0m"),
+            _ => return,
         };
         self.logs
             .entry(task_id.clone())
@@ -371,6 +372,7 @@ impl Ui for PlainUi {
         match stream {
             LogStream::Stdout => println!("[{task_id}] {line}"),
             LogStream::Stderr => eprintln!("[{task_id}] \x1b[31m⚠ {line}\x1b[0m"),
+            _ => { /* ignore system logs */ }
         }
     }
 

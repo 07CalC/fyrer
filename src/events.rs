@@ -15,10 +15,16 @@ pub enum ScrollDirection {
 pub enum LogStream {
     Stdout,
     Stderr,
+    System,
 }
 
 #[derive(Debug)]
 pub enum AppEvent {
+    TaskLog {
+        task_id: TaskId,
+        stream: LogStream,
+        line: String,
+    },
     Stdout {
         task_id: TaskId,
         line: String,
