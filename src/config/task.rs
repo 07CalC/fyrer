@@ -19,7 +19,7 @@ pub struct TaskConfig {
     #[serde(default)]
     pub env: EnvMap,
     #[serde(default)]
-    pub env_file: String,
+    pub env_file: Option<String>,
     #[serde(default)]
     pub persistent: bool,
     #[serde(default)]
