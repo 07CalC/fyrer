@@ -1,6 +1,10 @@
 use std::{collections::HashMap, path::PathBuf, sync::Arc};
 
-use crate::{TaskId, config::FyrerConfig, env::merge_envs, task::Task};
+use crate::{
+    config::FyrerConfig,
+    env::merge_envs,
+    task::{Task, TaskId},
+};
 
 /// task map will be immutable after creation, so we can use Arc to share tasks between threads
 #[derive(Debug, Clone)]

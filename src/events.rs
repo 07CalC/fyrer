@@ -1,7 +1,7 @@
 use crossterm::event::KeyEvent;
 use tokio::sync::mpsc::Sender;
 
-use crate::TaskId;
+use crate::task::TaskId;
 
 /// Direction of a mouse scroll event.
 #[derive(Debug, Clone, Copy)]

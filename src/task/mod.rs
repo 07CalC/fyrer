@@ -9,17 +9,17 @@ use tokio::{
 };
 
 use crate::{
-    TaskId,
     env::EnvMap,
     events::{AppEvent, TaskCommand},
-    task::process::TaskProcess,
+    task::{error::TaskError, process::TaskProcess},
 };
 
+mod error;
 mod graph;
 mod id;
 mod map;
 mod process;
-mod spawn;
+pub(crate) use id::TaskId;
 
 #[derive(Debug, Clone)]
 pub struct Task {
@@ -70,21 +70,31 @@ impl Task {
 
     pub fn spawn(&self, event_tx: Sender<AppEvent>) -> Result<TaskProcess> {
         let mut command = self.command();
-        let Some(mut child) = command.spawn().ok() else {
-            return Err(anyhow::anyhow!("Failed to spawn task: {}", self.id));
-        };
+        let mut child = command.spawn().map_err(|e| TaskError::TaskSpawnFailed {
+            task_id: self.id.clone(),
+            error: e.to_string(),
+        })?;
         let stdout = child
             .stdout
             .take()
-            .ok_or_else(|| anyhow::anyhow!("Failed to take stdout of task: {}", self.id))?;
+            .ok_or_else(|| TaskError::FailedToTakeStdio {
+                task_id: self.id.clone(),
+                stdio: "stdout".to_string(),
+            })?;
         let stderr = child
             .stderr
             .take()
-            .ok_or_else(|| anyhow::anyhow!("Failed to take stderr of task: {}", self.id))?;
+            .ok_or_else(|| TaskError::FailedToTakeStdio {
+                task_id: self.id.clone(),
+                stdio: "stderr".to_string(),
+            })?;
         let mut stdin = child
             .stdin
             .take()
-            .ok_or_else(|| anyhow::anyhow!("Failed to take stdin of task: {}", self.id))?;
+            .ok_or_else(|| TaskError::FailedToTakeStdio {
+                task_id: self.id.clone(),
+                stdio: "stdin".to_string(),
+            })?;
 
         let task_id = self.id.clone();
         let event_tx_clone = event_tx.clone();
