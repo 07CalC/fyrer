@@ -2,9 +2,19 @@ use std::{collections::HashMap, path::PathBuf, sync::Arc};
 
 use crate::{TaskId, config::FyrerConfig, env::merge_envs, task::Task};
 
+/// task map will be immutable after creation, so we can use Arc to share tasks between threads
 #[derive(Debug, Clone)]
 pub struct TaskMap {
-    pub tasks: HashMap<TaskId, Arc<Task>>,
+    tasks: HashMap<TaskId, Arc<Task>>,
+}
+
+impl TaskMap {
+    pub fn new(config: FyrerConfig) -> Self {
+        config.into()
+    }
+    pub fn get(&self, task_id: &TaskId) -> Option<Arc<Task>> {
+        self.tasks.get(task_id).cloned()
+    }
 }
 
 impl From<FyrerConfig> for TaskMap {

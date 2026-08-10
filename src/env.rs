@@ -3,6 +3,10 @@ use std::{collections::HashMap, path::Path};
 
 pub type EnvMap = HashMap<String, String>;
 
+/// we assumes that if env_file_path is given, then if exists, this validation is already done
+/// in the config validation phase, so we don't need to check for existence here
+///
+///
 /// priority: less to more:
 /// 1. global env
 /// 2. project_env_file

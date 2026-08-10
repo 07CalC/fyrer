@@ -2,7 +2,7 @@ use std::{fmt::Display, sync::Arc};
 
 /// keeping the project name and task name as Arc<String> to avoid cloning the strings when
 /// passing around TaskId, since they will be cloned frequently throughout
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, PartialEq, Eq, Hash)]
 pub struct TaskId {
     project_name: Arc<String>,
     task_name: Arc<String>,
@@ -30,6 +30,15 @@ impl TaskId {
 
     pub fn task_name(&self) -> &str {
         &self.task_name
+    }
+}
+
+impl Clone for TaskId {
+    fn clone(&self) -> Self {
+        Self {
+            project_name: Arc::clone(&self.project_name),
+            task_name: Arc::clone(&self.task_name),
+        }
     }
 }
 
