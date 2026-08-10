@@ -1,9 +1,8 @@
 use std::collections::{HashMap, HashSet, VecDeque};
 
 use crate::{
-    config::TaskMap,
     error::{FyrerError, FyrerResult, GraphError},
-    tasks::TaskId,
+    task::{TaskId, TaskMap},
 };
 
 #[derive(Debug, Clone)]
@@ -48,9 +47,7 @@ impl TaskGraph {
                 };
 
                 if dep_id == *id {
-                    return Err(FyrerError::Graph(GraphError::SelfDependency(
-                        id.to_string(),
-                    )));
+                    return Err(GraphError::SelfDependency(id.to_string()).into());
                 }
 
                 if !nodes.contains_key(&dep_id) {

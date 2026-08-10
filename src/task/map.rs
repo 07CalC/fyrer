@@ -9,7 +9,7 @@ use crate::{
 /// task map will be immutable after creation, so we can use Arc to share tasks between threads
 #[derive(Debug, Clone)]
 pub struct TaskMap {
-    tasks: HashMap<TaskId, Arc<Task>>,
+    pub tasks: HashMap<TaskId, Arc<Task>>,
 }
 
 impl TaskMap {

@@ -20,6 +20,7 @@ mod id;
 mod map;
 mod process;
 pub(crate) use id::TaskId;
+pub(crate) use map::TaskMap;
 
 #[derive(Debug, Clone)]
 pub struct Task {
