@@ -4,7 +4,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use tokio::sync::mpsc::Sender;
+use tokio::{sync::mpsc::Sender, task::JoinSet};
 
 use crate::{
     cache::CacheProvider,
@@ -80,7 +80,7 @@ impl Scheduler {
     }
 
     async fn run_level(&mut self, level: &[TaskId]) {
-        let mut processes = Vec::new();
+        let mut processes = JoinSet::new();
         let event_tx = self.event_tx.clone();
         for task_id in level {
             if self.is_blocked(task_id) {
@@ -113,7 +113,11 @@ impl Scheduler {
                             command_tx: process.command_tx.clone(),
                         })
                         .await;
-                    processes.push((task_id.clone(), process.handle));
+                    let task_id = task_id.clone();
+                    processes.spawn(async move {
+                        let result = process.handle.await;
+                        (task_id, result)
+                    });
                 }
                 Err(e) => {
                     self.status.insert(task_id.clone(), TaskStatus::Failed);
@@ -127,16 +131,19 @@ impl Scheduler {
                 }
             }
         }
-        for (task_id, handle) in processes {
-            match handle.await {
-                Ok(ProcessResult::Success { .. }) => {
+        while let Some(result) = processes.join_next().await {
+            match result {
+                Ok((task_id, Ok(ProcessResult::Success { .. }))) => {
                     self.status.insert(task_id, TaskStatus::Success);
                 }
-                Ok(ProcessResult::Failure { .. }) => {
+
+                Ok((task_id, Ok(ProcessResult::Failure { .. }))) => {
                     self.status.insert(task_id, TaskStatus::Failed);
                 }
-                Err(e) => {
+
+                Ok((task_id, Err(e))) => {
                     self.status.insert(task_id.clone(), TaskStatus::Failed);
+
                     let _ = event_tx
                         .send(AppEvent::TaskFailed {
                             task_id,
@@ -144,6 +151,11 @@ impl Scheduler {
                             error: Some(e.to_string()),
                         })
                         .await;
+                }
+
+                // the joinset itself panicked, which is unexpected, but we can log it and continue
+                Err(e) => {
+                    eprintln!("process task panicked: {e}");
                 }
             }
         }
