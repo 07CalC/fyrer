@@ -24,7 +24,7 @@ enum VisitState {
 }
 
 impl TaskGraph {
-    pub fn new(task_map: &TaskMap) -> FyrerResult<Self> {
+    pub fn new(task_map: TaskMap) -> FyrerResult<Self> {
         let mut nodes: HashMap<TaskId, TaskNode> = task_map
             .tasks
             .keys()

@@ -1,6 +1,7 @@
-use std::{path::PathBuf, process::Stdio, time::Duration};
+use std::{collections::HashSet, path::PathBuf, process::Stdio, time::Duration};
 
 use anyhow::Result;
+use glob::{Pattern, glob};
 use tokio::{
     io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
     process::Command,
@@ -9,6 +10,7 @@ use tokio::{
 };
 
 use crate::{
+    cache::hash::{hash_file, hash_kv},
     env::EnvMap,
     events::{AppEvent, TaskCommand},
     task::{error::TaskError, process::TaskProcess},
@@ -219,5 +221,37 @@ impl Task {
         // when the task is stopped
         command.process_group(0);
         command
+    }
+
+    pub fn cache_key(&self, task_map: TaskMap) -> Result<String> {
+        let mut hasher = blake3::Hasher::new();
+        hasher.update(self.id.to_string().as_bytes());
+        hasher.update(self.cmd.as_bytes());
+        hasher.update(self.cwd.to_string_lossy().as_bytes());
+
+        for (key, value) in &self.env {
+            hash_kv(&mut hasher, key, value);
+        }
+
+        //TODO: implement ignore behaviour
+        for input in &self.inputs {
+            let entries = match glob(input) {
+                Ok(p) => p,
+                Err(_) => continue,
+            };
+            for entry in entries {
+                if let Ok(path) = entry {
+                    if path.is_file() {
+                        hash_file(&mut hasher, &path)?;
+                    }
+                }
+            }
+        }
+        for dep_id in &self.depends_on {
+            if let Some(dep_task) = task_map.get(dep_id) {
+                hasher.update(dep_task.cache_key(task_map.clone())?.as_bytes());
+            }
+        }
+        Ok(hasher.finalize().to_hex().to_string())
     }
 }

@@ -9,7 +9,7 @@ use crate::{
 /// task map will be immutable after creation, so we can use Arc to share tasks between threads
 #[derive(Debug, Clone)]
 pub struct TaskMap {
-    pub tasks: HashMap<TaskId, Arc<Task>>,
+    pub tasks: Arc<HashMap<TaskId, Arc<Task>>>,
 }
 
 impl TaskMap {
@@ -63,6 +63,8 @@ impl From<FyrerConfig> for TaskMap {
                 tasks.insert(task_id, task);
             }
         }
-        Self { tasks }
+        Self {
+            tasks: Arc::new(tasks),
+        }
     }
 }
