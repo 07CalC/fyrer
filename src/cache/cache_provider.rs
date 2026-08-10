@@ -1,23 +1,17 @@
-use std::{path::PathBuf, sync::Arc};
+use std::path::PathBuf;
 
 use anyhow::Result;
 
-use crate::{
-    cache::{CacheMetadata, local::LocalCacheProvider},
-    config::CacheProviderKind,
-};
+use crate::cache::CacheMetadata;
 
 pub trait CacheProvider: Send + Sync {
     fn contains(&self, key: &str) -> bool;
 
-    fn restore(&self, key: &str, output_hash: &str) -> Result<bool>;
+    fn restore(&self, key: &str) -> Result<bool>;
 
     fn save(&self, key: &str, source: &[PathBuf], metadata: CacheMetadata) -> Result<bool>;
-}
 
-#[must_use]
-pub fn build_cache_provider(kind: &CacheProviderKind) -> Arc<dyn CacheProvider> {
-    match kind {
-        CacheProviderKind::Local => Arc::new(LocalCacheProvider::default()),
-    }
+    fn get_metadata(&self, key: &str) -> Result<Option<CacheMetadata>>;
+
+    fn need_hydration(&self, output_digest: &str) -> Result<bool>;
 }

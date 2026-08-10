@@ -9,7 +9,7 @@ use crate::{
     Task, TaskId,
     cache::{
         CacheMetadata, CacheProvider, CacheStatus,
-        cache::{get_hash, hash_output_files},
+        hash::{get_hash, hash_output_files},
     },
     config::TaskMap,
     events::AppEvent,

@@ -1,7 +1,11 @@
-use std::{collections::HashSet, path::PathBuf, process::Stdio, time::Duration};
+use std::{
+    path::PathBuf,
+    process::Stdio,
+    time::{Duration, Instant},
+};
 
 use anyhow::Result;
-use glob::{Pattern, glob};
+use glob::glob;
 use tokio::{
     io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
     process::Command,
@@ -10,10 +14,10 @@ use tokio::{
 };
 
 use crate::{
-    cache::hash::{hash_file, hash_kv},
+    cache::hash::{OutputDigest, hash_file, hash_kv},
     env::EnvMap,
     events::{AppEvent, TaskCommand},
-    task::{error::TaskError, process::TaskProcess},
+    task::error::TaskError,
 };
 
 mod error;
@@ -21,8 +25,12 @@ mod graph;
 mod id;
 mod map;
 mod process;
+mod status;
 pub(crate) use id::TaskId;
 pub(crate) use map::TaskMap;
+pub(crate) use process::ProcessResult;
+pub(crate) use process::TaskProcess;
+pub(crate) use status::TaskStatus;
 
 #[derive(Debug, Clone)]
 pub struct Task {
@@ -72,6 +80,7 @@ impl Task {
     }
 
     pub fn spawn(&self, event_tx: Sender<AppEvent>) -> Result<TaskProcess> {
+        let start_time = Instant::now();
         let mut command = self.command();
         let mut child = command.spawn().map_err(|e| TaskError::TaskSpawnFailed {
             task_id: self.id.clone(),
@@ -105,35 +114,71 @@ impl Task {
         let (stdout_handle, stderr_handle) =
             Self::pipe_logs(task_id, stdout, stderr, event_tx_clone);
 
-        // main lopp: owns the child process and waits for it to finish, sending events to
+        // main loop: owns the child process and waits for it to finish, sending events to
         // the event channel when it does, also listens for kill and stdin commands from
-        // the command channel and acts on them
+        // the command channel and acts on them, and kills the process if it exceeds the
+        // configured timeout
         let task_id = self.id.clone();
         let (command_tx, mut command_rx) = channel(1);
+        let timeout = self.timeout;
         let handle = tokio::spawn(async move {
+            let deadline = timeout.map(|duration| Instant::now() + duration);
+            let mut timed_out = false;
             loop {
+                let remaining = deadline
+                    .map(|deadline| deadline.saturating_duration_since(Instant::now()));
+                let sleep = remaining.map(tokio::time::sleep);
                 tokio::select! {
                     status = child.wait() => {
-                        let success = matches!(status, Ok(exit_status) if exit_status.success());
+                        let duration = start_time.elapsed();
                         let _ = stdout_handle.await;
                         let _ = stderr_handle.await;
-                        let event = match status {
-                            Ok(s) if s.success() => AppEvent::TaskComplete{
-                                task_id: task_id.clone(),
-                            },
-                            Ok(s) => AppEvent::TaskFailed{
-                                task_id: task_id.clone(),
-                                exit_code: s.code().unwrap_or(-1),
-                                error: None,
-                            },
-                            Err(e) => AppEvent::TaskFailed{
-                                task_id: task_id.clone(),
-                                exit_code: -1,
-                                error: Some(format!("Failed to wait for task {}: {}", task_id, e)),
-                            },
+                        let timeout_error = timed_out
+                            .then(|| "task exceeded its timeout and was killed".to_string());
+                        let (event, process_result) = match &status {
+                            Ok(s) if s.success() => (
+                                AppEvent::TaskComplete {
+                                    task_id: task_id.clone(),
+                                },
+                                ProcessResult::Success {
+                                    exit_code: s.code().unwrap_or(0),
+                                    duration,
+                                },
+                            ),
+                            Ok(s) => (
+                                AppEvent::TaskFailed {
+                                    task_id: task_id.clone(),
+                                    exit_code: s.code().unwrap_or(-1),
+                                    error: timeout_error.clone(),
+                                },
+                                ProcessResult::Failure {
+                                    exit_code: s.code().unwrap_or(-1),
+                                    duration,
+                                    error: timeout_error,
+                                },
+                            ),
+                            Err(e) => {
+                                let error = format!(
+                                    "Failed to wait for task {}: {}",
+                                    task_id, e
+                                );
+
+                                (
+                                    AppEvent::TaskFailed {
+                                        task_id: task_id.clone(),
+                                        exit_code: -1,
+                                        error: Some(error.clone()),
+                                    },
+                                    ProcessResult::Failure {
+                                        exit_code: -1,
+                                        duration,
+                                        error: Some(error),
+                                    },
+                                )
+                            }
                         };
                         let _ = event_tx.send(event).await;
-                        return success;
+                        return process_result;
                     }
                     Some(cmd) = command_rx.recv() => {
                         match cmd {
@@ -142,25 +187,42 @@ impl Task {
                                 let _ = stdin.flush().await;
                             }
                             TaskCommand::Kill => {
-                                #[cfg(unix)]
-                                if let Some(pid) = child.id() {
-                                    unsafe {
-                                        libc::kill(-(pid as i32), libc::SIGKILL);
-                                    }
-                                }
-                                let _ = child.kill().await;
+                                Self::terminate(&mut child).await;
                                 // not waiting for the child to exit here, it will be handled in the
                                 // next iteration of the loop when the child exits and the status is
                                 // received
-
                             }
                         }
                     }
-
+                    _ = async {
+                        if let Some(sleep) = sleep {
+                            sleep.await;
+                        }
+                    }, if remaining.is_some() => {
+                        timed_out = true;
+                        Self::terminate(&mut child).await;
+                        // reaping happens via child.wait() on the next iteration of the loop
+                    }
                 }
             }
         });
-        return Ok(TaskProcess { handle, command_tx });
+        return Ok(TaskProcess {
+            handle,
+            command_tx,
+            task_id: self.id.clone(),
+        });
+    }
+
+    async fn terminate(child: &mut tokio::process::Child) {
+        // sending SIGKILL to the process group ensures every descendant of the task is
+        // terminated, not just the immediate child process
+        #[cfg(unix)]
+        if let Some(pid) = child.id() {
+            unsafe {
+                libc::kill(-(pid as i32), libc::SIGKILL);
+            }
+        }
+        let _ = child.kill().await;
     }
 
     fn pipe_logs(
@@ -250,6 +312,24 @@ impl Task {
         for dep_id in &self.depends_on {
             if let Some(dep_task) = task_map.get(dep_id) {
                 hasher.update(dep_task.cache_key(task_map.clone())?.as_bytes());
+            }
+        }
+        Ok(hasher.finalize().to_hex().to_string())
+    }
+
+    pub fn output_digest(&self) -> Result<OutputDigest> {
+        let mut hasher = blake3::Hasher::new();
+        for output in &self.outputs {
+            let entries = match glob(output) {
+                Ok(p) => p,
+                Err(_) => continue,
+            };
+            for entry in entries {
+                if let Ok(path) = entry {
+                    if path.is_file() {
+                        hash_file(&mut hasher, &path)?;
+                    }
+                }
             }
         }
         Ok(hasher.finalize().to_hex().to_string())

@@ -1,9 +1,8 @@
 use std::collections::{HashMap, HashSet, VecDeque};
 
-use crate::{
-    error::{FyrerError, FyrerResult, GraphError},
-    task::{error::GraphError, id::TaskId, map::TaskMap},
-};
+use anyhow::Result;
+
+use crate::task::{error::GraphError, id::TaskId, map::TaskMap};
 
 #[derive(Debug, Clone)]
 pub struct TaskGraph {
@@ -24,7 +23,7 @@ enum VisitState {
 }
 
 impl TaskGraph {
-    pub fn new(task_map: TaskMap) -> FyrerResult<Self> {
+    pub fn new(task_map: TaskMap) -> Result<Self> {
         let mut nodes: HashMap<TaskId, TaskNode> = task_map
             .tasks
             .keys()
@@ -45,14 +44,16 @@ impl TaskGraph {
                 if dep_id == id {
                     return Err(GraphError::SelfDependency {
                         task_id: id.clone(),
-                    });
+                    }
+                    .into());
                 }
 
                 if !nodes.contains_key(&dep_id) {
                     return Err(GraphError::MissingDependency {
                         dependent: id.clone(),
                         dependency: dep_id.clone(),
-                    });
+                    }
+                    .into());
                 }
 
                 let node = nodes.get_mut(id).expect("task id exists in the graph");
@@ -68,7 +69,7 @@ impl TaskGraph {
         Ok(Self { nodes })
     }
 
-    pub fn validate(&self) -> FyrerResult<()> {
+    pub fn validate(&self) -> Result<()> {
         let mut states = HashMap::new();
         for node in self.nodes.values() {
             if !matches!(states.get(&node.id), Some(VisitState::Done))
@@ -76,7 +77,8 @@ impl TaskGraph {
             {
                 return Err(GraphError::CycleDetected {
                     task_id: node.id.clone(),
-                });
+                }
+                .into());
             }
         }
         Ok(())
@@ -96,12 +98,13 @@ impl TaskGraph {
         has_cycle
     }
 
-    pub fn get_orders(&self, tasks: &[TaskId]) -> FyrerResult<Vec<Vec<(TaskId, Vec<TaskId>)>>> {
+    pub fn get_orders(&self, tasks: &[TaskId]) -> Result<Vec<Vec<(TaskId, Vec<TaskId>)>>> {
         for id in tasks {
             if !self.nodes.contains_key(id) {
                 return Err(GraphError::TaskNotFound {
                     task_id: id.clone(),
-                });
+                }
+                .into());
             }
         }
 

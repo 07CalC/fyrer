@@ -44,6 +44,9 @@ pub enum AppEvent {
     TaskCacheHit {
         task_id: TaskId,
     },
+    TaskSkipped {
+        task_id: TaskId,
+    },
     FileChanged {
         task_id: TaskId,
     },
@@ -51,7 +54,7 @@ pub enum AppEvent {
     MouseScroll(ScrollDirection),
     TaskSpawned {
         task_id: TaskId,
-        command_sender: Sender<TaskCommand>,
+        command_tx: Sender<TaskCommand>,
     },
     /// Sent once the scheduler has finished every level, including all
     /// post-completion work (e.g. cache saves). Auto-quit waits for it so
