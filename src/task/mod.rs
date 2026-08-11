@@ -1,4 +1,5 @@
 use std::{
+    os::unix::process::ExitStatusExt,
     path::PathBuf,
     process::Stdio,
     time::{Duration, Instant},
@@ -147,18 +148,25 @@ impl Task {
                                     duration,
                                 },
                             ),
-                            Ok(s) => (
-                                AppEvent::TaskFailed {
-                                    task_id: task_id.clone(),
-                                    exit_code: s.code().unwrap_or(-1),
-                                    error: timeout_error.clone(),
-                                },
-                                ProcessResult::Failure {
-                                    exit_code: s.code().unwrap_or(-1),
-                                    duration,
-                                    error: timeout_error,
-                                },
-                            ),
+                            Ok(s) => {
+                                if let Some(_) = s.signal() {
+                                        (AppEvent::TaskComplete {
+                                            task_id: task_id.clone(),
+                                        },
+                                        ProcessResult::Success { exit_code: s.code().unwrap_or(0), duration })
+                                } else {
+                                        (AppEvent::TaskFailed {
+                                            task_id: task_id.clone(),
+                                            exit_code: s.code().unwrap_or(-1),
+                                            error: timeout_error.clone(),
+                                        },
+                                        ProcessResult::Failure {
+                                            exit_code: s.code().unwrap_or(-1),
+                                            duration,
+                                            error: timeout_error,
+                                        })
+                                }
+                            },
                             Err(e) => {
                                 let error = format!(
                                     "Failed to wait for task {}: {}",

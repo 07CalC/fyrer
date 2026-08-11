@@ -28,6 +28,7 @@ pub struct Orchestrator {
     pub event_tx: Sender<AppEvent>,
     event_rx: Receiver<AppEvent>,
     tasks: HashMap<TaskId, TaskState>,
+    should_quit: bool,
 }
 
 impl Orchestrator {
@@ -42,6 +43,7 @@ impl Orchestrator {
             event_tx,
             event_rx,
             tasks: HashMap::new(),
+            should_quit: false,
         }
     }
 
@@ -84,6 +86,12 @@ impl Orchestrator {
         let cache = self.cache.clone();
         let mut scheduler = Scheduler::new(self.task_map.clone(), levels, event_tx, cache);
         let mut scheduler_handle = tokio::spawn(async move { scheduler.run().await });
+        let mut event_tx = self.event_tx.clone();
+        tokio::spawn(async move {
+            sleep(Duration::from_secs(5)).await;
+            print!("sending shutdown signal");
+            let _ = event_tx.send(AppEvent::Shutdown);
+        });
         loop {
             tokio::select! {
                 result = &mut scheduler_handle => {
@@ -98,11 +106,19 @@ impl Orchestrator {
                         }
                     }
                 }
-
                 event = self.event_rx.recv() => {
                     match event {
                         Ok(app_event) => {
-                            self.consume_event(app_event).await;
+                            if matches!(app_event, AppEvent::Shutdown) {
+                                println!("Shutdown signal received. Terminating tasks...");
+                                self.shutdown().await;
+                                println!("All tasks terminated. Exiting.");
+                            }
+                            let quit = self.consume_event(app_event).await;
+                            if quit {
+                                println!("Exiting application.");
+                                break;
+                            }
                         }
                         Err(broadcast::error::RecvError::Lagged(count)) => {}
                         Err(broadcast::error::RecvError::Closed) => {
@@ -115,7 +131,7 @@ impl Orchestrator {
         Ok(())
     }
 
-    async fn consume_event(&mut self, event: AppEvent) {
+    async fn consume_event(&mut self, event: AppEvent) -> bool {
         match event {
             AppEvent::TaskSpawned {
                 task_id,
@@ -129,14 +145,13 @@ impl Orchestrator {
                         logs: VecDeque::new(),
                     },
                 );
+                false
             }
             AppEvent::KeyPress(key_event) => {
                 if key_event.code == crossterm::event::KeyCode::Char('q') {
-                    self.shutdown().await;
+                    let _ = self.event_tx.send(AppEvent::Shutdown);
                 }
-            }
-            AppEvent::Shutdown => {
-                self.shutdown().await;
+                false
             }
             AppEvent::TaskLog {
                 task_id,
@@ -144,9 +159,30 @@ impl Orchestrator {
                 line,
             } => {
                 println!("[{}][{:?}] {}", task_id, stream, line);
+                false
+            }
+            AppEvent::TaskComplete { task_id } => {
+                if let Some(task_state) = self.tasks.get_mut(&task_id) {
+                    task_state.status = crate::task::TaskStatus::Success;
+                }
+                self.safe_to_quit()
+            }
+            AppEvent::TaskFailed {
+                task_id,
+                exit_code,
+                error,
+            } => {
+                if let Some(task_state) = self.tasks.get_mut(&task_id) {
+                    task_state.status = crate::task::TaskStatus::Failed;
+                }
+                eprintln!(
+                    "Task {} failed with exit code {}: {:?}",
+                    task_id, exit_code, error
+                );
+                self.safe_to_quit()
             }
 
-            _ => {}
+            _ => false,
         }
     }
 
@@ -156,22 +192,22 @@ impl Orchestrator {
                 let _ = command_tx.try_send(crate::events::TaskCommand::Kill);
             }
         }
-        while self
+        self.should_quit = true;
+    }
+
+    fn safe_to_quit(&self) -> bool {
+        !self
             .tasks
             .values()
-            .any(|s| s.status == crate::task::TaskStatus::Running)
-        {
-            sleep(Duration::from_millis(100)).await;
-        }
+            .any(|task_state| matches!(task_state.status, crate::task::TaskStatus::Running))
+            && self.should_quit
     }
 
     fn listen_for_ctrl_c(&mut self) {
         let event_tx = self.event_tx.clone();
         tokio::spawn(async move {
             tokio::signal::ctrl_c().await.unwrap();
-            let _ = event_tx.send(AppEvent::KeyPress(crossterm::event::KeyEvent::from(
-                crossterm::event::KeyCode::Char('q'),
-            )));
+            let _ = event_tx.send(AppEvent::Shutdown);
         });
     }
     fn cache_provider(cache_config: &CacheConfig) -> Arc<dyn CacheProvider> {
