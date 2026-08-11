@@ -60,6 +60,7 @@ pub enum AppEvent {
     /// post-completion work (e.g. cache saves). Auto-quit waits for it so
     /// final messages are always shown.
     RunFinished,
+    Shutdown,
     Tick,
 }
 

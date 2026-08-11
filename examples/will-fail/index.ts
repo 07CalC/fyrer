@@ -9,9 +9,9 @@ try {
 }
 
 function someFunctionThatMightThrow() {
-  if (Math.random() < 0.5) {
-    throw new Error('This is a simulated error.');
-  } else {
-    console.log('Function executed successfully.');
-  }
+  // if (Math.random() < 0.5) {
+  // throw new Error('This is a simulated error.');
+  // } else {
+  console.log('Function executed successfully.');
+  // }
 }
