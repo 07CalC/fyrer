@@ -1,5 +1,6 @@
-use crate::error::{EnvError, FyrerError, FyrerResult};
 use std::{collections::HashMap, path::Path};
+
+use anyhow::Result;
 
 pub type EnvMap = HashMap<String, String>;
 
@@ -41,9 +42,9 @@ fn merge(base: &EnvMap, overrides: &EnvMap) -> EnvMap {
     merged
 }
 
-fn read_env_file(path: &Path) -> FyrerResult<EnvMap> {
+fn read_env_file(path: &Path) -> Result<EnvMap> {
     let content = std::fs::read_to_string(path)
-        .map_err(|source| FyrerError::Env(EnvError::ReadFile { source }))?;
+        .map_err(|source| crate::error::EvnError::ReadFile { source })?;
     Ok(parse_env(&content))
 }
 

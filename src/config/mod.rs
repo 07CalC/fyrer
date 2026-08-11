@@ -293,4 +293,39 @@ impl FyrerConfig {
         }
         Ok(())
     }
+
+    pub fn list_tasks(&self) {
+        for package in &self.packages {
+            println!("Package: {}", package.name);
+            for (task_name, task_config) in &package.tasks {
+                println!("  Task: {}", task_name);
+                println!("    Command: {}", task_config.cmd);
+                if let Some(cwd) = &task_config.cwd {
+                    println!("    CWD: {}", cwd.display());
+                }
+                if !task_config.ignore.is_empty() {
+                    println!("    Ignore: {:?}", task_config.ignore);
+                }
+                if !task_config.inputs.is_empty() {
+                    println!("    Inputs: {:?}", task_config.inputs);
+                }
+                if !task_config.outputs.is_empty() {
+                    println!("    Outputs: {:?}", task_config.outputs);
+                }
+                if let Some(timeout) = &task_config.timeout {
+                    println!("    Timeout: {:?}", timeout);
+                }
+                if task_config.cache {
+                    println!("    Cache: true");
+                }
+                if task_config.persistent {
+                    println!("    Persistent: true");
+                }
+                if task_config.watch {
+                    println!("    Watch: true");
+                }
+            }
+        }
+
+    }
 }

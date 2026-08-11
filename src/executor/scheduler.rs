@@ -160,6 +160,8 @@ impl Scheduler {
             }
         }
     }
+    //TODO: all error handling should be explicitly done later, for now we just treat any error as a
+    //cache miss and run the task
 
     fn cache_hit(&self, task: &Task) -> bool {
         if !task.cache {
