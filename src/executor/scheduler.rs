@@ -4,7 +4,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use tokio::{sync::mpsc::Sender, task::JoinSet};
+use tokio::{sync::broadcast::Sender, task::JoinSet};
 
 use crate::{
     cache::CacheProvider,
@@ -51,7 +51,7 @@ impl Scheduler {
         for level in &levels {
             self.run_level(level).await;
         }
-        let _ = self.event_tx.send(AppEvent::RunFinished).await;
+        let _ = self.event_tx.send(AppEvent::RunFinished);
         RunSummary {
             total: self.status.len(),
             successful: self
@@ -84,11 +84,9 @@ impl Scheduler {
         for task_id in level {
             if self.is_blocked(task_id) {
                 self.status.insert(task_id.clone(), TaskStatus::Skipped);
-                let _ = event_tx
-                    .send(AppEvent::TaskSkipped {
-                        task_id: task_id.clone(),
-                    })
-                    .await;
+                let _ = event_tx.send(AppEvent::TaskSkipped {
+                    task_id: task_id.clone(),
+                });
                 continue;
             }
             let task = self
@@ -97,21 +95,18 @@ impl Scheduler {
                 .expect("task id exists in the graph");
             if self.cache_hit(&task) {
                 self.status.insert(task_id.clone(), TaskStatus::Cached);
-                let _ = event_tx
-                    .send(AppEvent::TaskCacheHit {
-                        task_id: task_id.clone(),
-                    })
-                    .await;
+                let _ = event_tx.send(AppEvent::TaskCacheHit {
+                    task_id: task_id.clone(),
+                });
+
                 continue;
             }
             match task.spawn(event_tx.clone()) {
                 Ok(process) => {
-                    let _ = event_tx
-                        .send(AppEvent::TaskSpawned {
-                            task_id: task_id.clone(),
-                            command_tx: process.command_tx.clone(),
-                        })
-                        .await;
+                    let _ = event_tx.send(AppEvent::TaskSpawned {
+                        task_id: task_id.clone(),
+                        command_tx: process.command_tx.clone(),
+                    });
                     let task_id = task_id.clone();
                     processes.spawn(async move {
                         let result = process.handle.await;
@@ -120,13 +115,11 @@ impl Scheduler {
                 }
                 Err(e) => {
                     self.status.insert(task_id.clone(), TaskStatus::Failed);
-                    let _ = event_tx
-                        .send(AppEvent::TaskFailed {
-                            task_id: task_id.clone(),
-                            exit_code: -1,
-                            error: Some(e.to_string()),
-                        })
-                        .await;
+                    let _ = event_tx.send(AppEvent::TaskFailed {
+                        task_id: task_id.clone(),
+                        exit_code: -1,
+                        error: Some(e.to_string()),
+                    });
                 }
             }
         }
@@ -143,13 +136,11 @@ impl Scheduler {
                 Ok((task_id, Err(e))) => {
                     self.status.insert(task_id.clone(), TaskStatus::Failed);
 
-                    let _ = event_tx
-                        .send(AppEvent::TaskFailed {
-                            task_id,
-                            exit_code: -1,
-                            error: Some(e.to_string()),
-                        })
-                        .await;
+                    let _ = event_tx.send(AppEvent::TaskFailed {
+                        task_id,
+                        exit_code: -1,
+                        error: Some(e.to_string()),
+                    });
                 }
 
                 // the joinset itself panicked, which is unexpected, but we can log it and continue

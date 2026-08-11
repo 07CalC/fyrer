@@ -13,7 +13,7 @@ impl LocalCacheProvider {
 
 impl CacheProvider for LocalCacheProvider {
     fn contains(&self, key: &str) -> bool {
-        todo!()
+        false
     }
 
     fn restore(&self, key: &str) -> anyhow::Result<bool> {

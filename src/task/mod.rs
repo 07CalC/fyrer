@@ -9,7 +9,7 @@ use glob::glob;
 use tokio::{
     io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
     process::Command,
-    sync::mpsc::{Sender, channel},
+    sync::broadcast::{Sender, channel},
     task::JoinHandle,
 };
 
@@ -121,7 +121,7 @@ impl Task {
         // the command channel and acts on them, and kills the process if it exceeds the
         // configured timeout
         let task_id = self.id.clone();
-        let (command_tx, mut command_rx) = channel(1);
+        let (command_tx, mut command_rx) = tokio::sync::mpsc::channel(1);
         let timeout = self.timeout;
         let handle = tokio::spawn(async move {
             let deadline = timeout.map(|duration| Instant::now() + duration);
@@ -179,7 +179,7 @@ impl Task {
                                 )
                             }
                         };
-                        let _ = event_tx.send(event).await;
+                        let _ = event_tx.send(event);
                         return process_result;
                     }
                     Some(cmd) = command_rx.recv() => {
@@ -240,25 +240,21 @@ impl Task {
         let stdout_handle = tokio::spawn(async move {
             let mut lines = BufReader::new(stdout).lines();
             while let Ok(Some(line)) = lines.next_line().await {
-                let _ = stdout_tx
-                    .send(AppEvent::TaskLog {
-                        task_id: stdout_id.clone(),
-                        stream: crate::events::LogStream::Stdout,
-                        line,
-                    })
-                    .await;
+                let _ = stdout_tx.send(AppEvent::TaskLog {
+                    task_id: stdout_id.clone(),
+                    stream: crate::events::LogStream::Stdout,
+                    line,
+                });
             }
         });
         let stderr_handle = tokio::spawn(async move {
             let mut lines = BufReader::new(stderr).lines();
             while let Ok(Some(line)) = lines.next_line().await {
-                let _ = stderr_tx
-                    .send(AppEvent::TaskLog {
-                        task_id: stderr_id.clone(),
-                        stream: crate::events::LogStream::Stderr,
-                        line,
-                    })
-                    .await;
+                let _ = stderr_tx.send(AppEvent::TaskLog {
+                    task_id: stderr_id.clone(),
+                    stream: crate::events::LogStream::Stderr,
+                    line,
+                });
             }
         });
         (stdout_handle, stderr_handle)
