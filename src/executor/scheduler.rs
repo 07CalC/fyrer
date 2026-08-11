@@ -129,8 +129,20 @@ impl Scheduler {
         }
         while let Some(result) = processes.join_next().await {
             match result {
-                Ok((task_id, Ok(ProcessResult::Success { .. }))) => {
-                    self.status.insert(task_id, TaskStatus::Success);
+                Ok((
+                    task_id,
+                    Ok(ProcessResult::Success {
+                        exit_code,
+                        duration,
+                    }),
+                )) => {
+                    self.status.insert(task_id.clone(), TaskStatus::Success);
+                    let task = self
+                        .task_map
+                        .get(&task_id)
+                        .expect("task id exists in the graph");
+                    let start = Instant::now();
+                    self.try_cache_save(&task, duration.as_millis(), exit_code);
                 }
 
                 Ok((task_id, Ok(ProcessResult::Failure { .. }))) => {
@@ -154,6 +166,45 @@ impl Scheduler {
             }
         }
     }
+
+    fn try_cache_save(&self, task: &Task, duration_ms: u128, exit_code: i32) {
+        if !task.cache {
+            return;
+        }
+        let cache_key = match task.cache_key(self.task_map.clone()) {
+            Ok(key) => key,
+            Err(e) => {
+                eprintln!("Failed to compute cache key for task {}: {}", task.id, e);
+                return;
+            }
+        };
+        let output_digest = match task.output_digest() {
+            Ok(key) => key,
+            Err(e) => {
+                eprintln!(
+                    "Failed to compute output digest for task {}: {}",
+                    task.id, e
+                );
+                return;
+            }
+        };
+        let metadata = crate::cache::CacheMetadata::new(
+            task.id.clone().to_string(),
+            duration_ms,
+            exit_code,
+            crate::cache::CacheStatus::Miss,
+            cache_key.clone(),
+            output_digest.clone(),
+            chrono::Utc::now().timestamp_millis() as u64,
+        );
+        if let Err(e) = self
+            .cache
+            .save(&cache_key, &task.resolve_outputs(), metadata)
+        {
+            eprintln!("Failed to save cache for task {}: {}", task.id, e);
+        }
+    }
+
     //TODO: all error handling should be explicitly done later, for now we just treat any error as a
     //cache miss and run the task
 
@@ -176,7 +227,7 @@ impl Scheduler {
                 return false;
             }
         };
-        match self.cache.need_hydration(&output_digest) {
+        match self.cache.need_hydration(&cache_key, &output_digest) {
             // outputs are already in place and intact, nothing to do
             Ok(false) => true,
             // outputs are missing or corrupted, need to restore from cache

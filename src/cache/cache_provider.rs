@@ -13,5 +13,5 @@ pub trait CacheProvider: Send + Sync {
 
     fn get_metadata(&self, key: &str) -> Result<Option<CacheMetadata>>;
 
-    fn need_hydration(&self, output_digest: &str) -> Result<bool>;
+    fn need_hydration(&self, key: &str, output_digest: &str) -> Result<bool>;
 }

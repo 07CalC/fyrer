@@ -12,7 +12,7 @@ use crate::cache::hash::{CacheKey, OutputDigest};
 #[derive(Deserialize, Serialize, Debug, Clone)]
 pub struct CacheMetadata {
     pub task: String,
-    pub duration_ms: u64,
+    pub duration_ms: u128,
     pub exit_code: i32,
     pub cache_status: CacheStatus,
     pub cache_key: CacheKey,
@@ -23,7 +23,7 @@ pub struct CacheMetadata {
 impl CacheMetadata {
     pub fn new(
         task: String,
-        duration_ms: u64,
+        duration_ms: u128,
         exit_code: i32,
         cache_status: CacheStatus,
         cache_key: CacheKey,

@@ -297,7 +297,9 @@ impl Task {
         hasher.update(self.cmd.as_bytes());
         hasher.update(self.cwd.to_string_lossy().as_bytes());
 
-        for (key, value) in &self.env {
+        let mut env: Vec<_> = self.env.iter().collect();
+        env.sort_by_key(|(key, _)| *key);
+        for (key, value) in env {
             hash_kv(&mut hasher, key, value);
         }
 
@@ -339,5 +341,21 @@ impl Task {
             }
         }
         Ok(hasher.finalize().to_hex().to_string())
+    }
+
+    pub fn resolve_outputs(&self) -> Vec<PathBuf> {
+        let mut resolved = Vec::new();
+        for output in &self.outputs {
+            let entries = match glob(self.cwd.join(output).to_string_lossy().as_ref()) {
+                Ok(p) => p,
+                Err(_) => continue,
+            };
+            for entry in entries {
+                if let Ok(path) = entry {
+                    resolved.push(path);
+                }
+            }
+        }
+        resolved
     }
 }

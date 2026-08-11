@@ -150,6 +150,9 @@ impl Orchestrator {
                 stream,
                 line,
             } => {
+                //TODO: add a log buffer to the task state, the logs printing will be
+                //handled by the UI and not the orchestrator, the log buffers will be
+                //responsible for persisting these logs
                 println!("[{}][{:?}] {}", task_id, stream, line);
                 false
             }
