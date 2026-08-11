@@ -1,14 +1,10 @@
 use std::{
     collections::{HashMap, VecDeque},
     sync::Arc,
-    time::Duration,
 };
 
 use anyhow::Result;
-use tokio::{
-    sync::broadcast::{self, Receiver, Sender},
-    time::sleep,
-};
+use tokio::sync::broadcast::{self, Receiver, Sender};
 
 use crate::{
     cache::{
@@ -28,7 +24,6 @@ pub struct Orchestrator {
     pub event_tx: Sender<AppEvent>,
     event_rx: Receiver<AppEvent>,
     tasks: HashMap<TaskId, TaskState>,
-    should_quit: bool,
 }
 
 impl Orchestrator {
@@ -43,7 +38,6 @@ impl Orchestrator {
             event_tx,
             event_rx,
             tasks: HashMap::new(),
-            should_quit: false,
         }
     }
 
@@ -86,12 +80,9 @@ impl Orchestrator {
         let cache = self.cache.clone();
         let mut scheduler = Scheduler::new(self.task_map.clone(), levels, event_tx, cache);
         let mut scheduler_handle = tokio::spawn(async move { scheduler.run().await });
-        let mut event_tx = self.event_tx.clone();
-        tokio::spawn(async move {
-            sleep(Duration::from_secs(5)).await;
-            print!("sending shutdown signal");
-            let _ = event_tx.send(AppEvent::Shutdown);
-        });
+
+        // listen for Ctrl+c signal to gracefully shutdown the orchestrator and its tasks that are currently running, although we can not guarantee that all teh tasks will be terminated gracefully, if fyrer gets a SIGKILL signal, then we might not get the chance to terminate all the tasks gracefully, and some of the tasks might still be running in the background even after the orchestrator has exited
+        self.listen_for_ctrl_c();
         loop {
             tokio::select! {
                 result = &mut scheduler_handle => {
@@ -109,14 +100,8 @@ impl Orchestrator {
                 event = self.event_rx.recv() => {
                     match event {
                         Ok(app_event) => {
-                            if matches!(app_event, AppEvent::Shutdown) {
-                                println!("Shutdown signal received. Terminating tasks...");
-                                self.shutdown().await;
-                                println!("All tasks terminated. Exiting.");
-                            }
                             let quit = self.consume_event(app_event).await;
                             if quit {
-                                println!("Exiting application.");
                                 break;
                             }
                         }
@@ -131,8 +116,15 @@ impl Orchestrator {
         Ok(())
     }
 
+    /// returned bool indicates whether the orchestrator main loop should break or not, if all
+    /// tasks are exited (either completed or failed) and the orchestrator is in shutdown
+    /// mode, then it should break
     async fn consume_event(&mut self, event: AppEvent) -> bool {
         match event {
+            AppEvent::Shutdown => {
+                self.shutdown();
+                false
+            }
             AppEvent::TaskSpawned {
                 task_id,
                 command_tx,
@@ -149,7 +141,7 @@ impl Orchestrator {
             }
             AppEvent::KeyPress(key_event) => {
                 if key_event.code == crossterm::event::KeyCode::Char('q') {
-                    let _ = self.event_tx.send(AppEvent::Shutdown);
+                    self.shutdown();
                 }
                 false
             }
@@ -165,7 +157,8 @@ impl Orchestrator {
                 if let Some(task_state) = self.tasks.get_mut(&task_id) {
                     task_state.status = crate::task::TaskStatus::Success;
                 }
-                self.safe_to_quit()
+                // self.safe_to_quit()
+                false
             }
             AppEvent::TaskFailed {
                 task_id,
@@ -179,28 +172,28 @@ impl Orchestrator {
                     "Task {} failed with exit code {}: {:?}",
                     task_id, exit_code, error
                 );
-                self.safe_to_quit()
+                false
             }
-
+            AppEvent::RunFinished(run_summary) => {
+                println!("Run summary: ");
+                println!("  Total tasks: {}", run_summary.total);
+                println!("  Successful tasks: {}", run_summary.successful);
+                println!("  Failed tasks: {}", run_summary.failed);
+                println!("  Skipped tasks: {}", run_summary.skipped);
+                println!("  Cached tasks: {}", run_summary.cached);
+                println!("  Duration: {:?}", run_summary.duration);
+                true
+            }
             _ => false,
         }
     }
 
-    async fn shutdown(&mut self) {
+    fn shutdown(&mut self) {
         for (_, task_state) in &mut self.tasks {
             if let Some(command_tx) = &task_state.command_tx {
                 let _ = command_tx.try_send(crate::events::TaskCommand::Kill);
             }
         }
-        self.should_quit = true;
-    }
-
-    fn safe_to_quit(&self) -> bool {
-        !self
-            .tasks
-            .values()
-            .any(|task_state| matches!(task_state.status, crate::task::TaskStatus::Running))
-            && self.should_quit
     }
 
     fn listen_for_ctrl_c(&mut self) {

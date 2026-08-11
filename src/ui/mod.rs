@@ -4,6 +4,9 @@ use crate::{
     events::LogStream,
     task::{TaskId, TaskStatus},
 };
+
+pub mod plain;
+pub mod tui;
 pub trait Ui {
     fn push_log(&mut self, task_id: &TaskId, line: String, stream: LogStream);
     fn render(&mut self, tasks: &[(TaskId, TaskStatus)]) -> Result<()>;

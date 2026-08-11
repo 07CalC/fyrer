@@ -51,8 +51,8 @@ impl Scheduler {
         for level in &levels {
             self.run_level(level).await;
         }
-        let _ = self.event_tx.send(AppEvent::RunFinished);
-        RunSummary {
+        let duration = start_time.elapsed();
+        let run_summary = RunSummary {
             total: self.status.len(),
             successful: self
                 .status
@@ -74,8 +74,12 @@ impl Scheduler {
                 .values()
                 .filter(|s| **s == TaskStatus::Skipped)
                 .count(),
-            duration: start_time.elapsed(),
-        }
+            duration,
+        };
+        let _ = self
+            .event_tx
+            .send(AppEvent::RunFinished(run_summary.clone()));
+        run_summary
     }
 
     async fn run_level(&mut self, level: &[TaskId]) {

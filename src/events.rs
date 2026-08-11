@@ -1,7 +1,7 @@
 use crossterm::event::KeyEvent;
 use tokio::sync::mpsc::Sender;
 
-use crate::task::TaskId;
+use crate::{executor::scheduler::RunSummary, task::TaskId};
 
 /// Direction of a mouse scroll event.
 #[derive(Debug, Clone, Copy)]
@@ -59,7 +59,7 @@ pub enum AppEvent {
     /// Sent once the scheduler has finished every level, including all
     /// post-completion work (e.g. cache saves). Auto-quit waits for it so
     /// final messages are always shown.
-    RunFinished,
+    RunFinished(RunSummary),
     Shutdown,
     Tick,
 }
