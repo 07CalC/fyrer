@@ -98,7 +98,7 @@ impl TaskGraph {
         has_cycle
     }
 
-    pub fn get_orders(&self, tasks: &[TaskId]) -> Result<Vec<Vec<(TaskId, Vec<TaskId>)>>> {
+    pub fn get_orders(&self, tasks: &[TaskId]) -> Result<Vec<Vec<TaskId>>> {
         for id in tasks {
             if !self.nodes.contains_key(id) {
                 return Err(GraphError::TaskNotFound {
@@ -143,15 +143,7 @@ impl TaskGraph {
         let mut processed = HashSet::new();
 
         while !queue.is_empty() {
-            levels.push(
-                queue
-                    .iter()
-                    .map(|id| {
-                        let deps = deps[&id].clone();
-                        (id.clone(), deps)
-                    })
-                    .collect(),
-            );
+            levels.push(queue.iter().map(|id| id.clone()).collect());
 
             let mut next_queue = VecDeque::new();
             for id in &queue {

@@ -4,6 +4,7 @@ use clap::Parser;
 use crate::{
     cli::{Cli, Command},
     config::FyrerConfig,
+    executor::orchestrator::Orchestrator,
 };
 
 pub struct App {
@@ -21,11 +22,11 @@ impl App {
         let command = &self.cli.command;
         let config = FyrerConfig::new_from_path(config_path)?;
         match command {
-            Command::Run {
-                task,
-                dry_run,
-                no_tui,
-            } => {}
+            Command::Run { task } => {}
+            Command::Plan { task } => {
+                let mut orchestrator = Orchestrator::new(config);
+                orchestrator.plan(task.as_deref())?;
+            }
             Command::List => {
                 config.list_tasks();
             }

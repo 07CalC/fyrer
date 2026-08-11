@@ -1,6 +1,9 @@
 use anyhow::Result;
 
-use crate::{TaskId, events::LogStream, tasks::TaskStatus};
+use crate::{
+    events::LogStream,
+    task::{TaskId, TaskStatus},
+};
 pub trait Ui {
     fn push_log(&mut self, task_id: &TaskId, line: String, stream: LogStream);
     fn render(&mut self, tasks: &[(TaskId, TaskStatus)]) -> Result<()>;

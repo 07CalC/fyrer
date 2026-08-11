@@ -1,6 +1,9 @@
-use std::time::Duration;
+use std::{collections::VecDeque, time::Duration};
 
-use crate::{events::TaskCommand, task::TaskId};
+use crate::{
+    events::{LogStream, TaskCommand},
+    task::{TaskId, TaskStatus},
+};
 use tokio::{sync::mpsc::Sender, task::JoinHandle};
 
 #[derive(Debug)]
@@ -22,4 +25,10 @@ pub enum ProcessResult {
         duration: Duration,
         error: Option<String>,
     },
+}
+
+pub struct TaskState {
+    pub command_tx: Option<Sender<TaskCommand>>,
+    pub status: TaskStatus,
+    pub logs: VecDeque<String>,
 }

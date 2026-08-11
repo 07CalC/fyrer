@@ -18,7 +18,7 @@ pub enum LogStream {
     System,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum AppEvent {
     TaskLog {
         task_id: TaskId,

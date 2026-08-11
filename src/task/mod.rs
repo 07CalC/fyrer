@@ -26,10 +26,12 @@ mod id;
 mod map;
 mod process;
 mod status;
+pub(crate) use graph::TaskGraph;
 pub(crate) use id::TaskId;
 pub(crate) use map::TaskMap;
 pub(crate) use process::ProcessResult;
 pub(crate) use process::TaskProcess;
+pub(crate) use process::TaskState;
 pub(crate) use status::TaskStatus;
 
 #[derive(Debug, Clone)]
@@ -125,8 +127,8 @@ impl Task {
             let deadline = timeout.map(|duration| Instant::now() + duration);
             let mut timed_out = false;
             loop {
-                let remaining = deadline
-                    .map(|deadline| deadline.saturating_duration_since(Instant::now()));
+                let remaining =
+                    deadline.map(|deadline| deadline.saturating_duration_since(Instant::now()));
                 let sleep = remaining.map(tokio::time::sleep);
                 tokio::select! {
                     status = child.wait() => {

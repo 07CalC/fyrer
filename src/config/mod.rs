@@ -4,15 +4,14 @@ use anyhow::Result;
 use glob::Pattern;
 use serde::Deserialize;
 
-use crate::{
-    config::{cache::CacheConfig, package::PackageConfig},
-    env::EnvMap,
-};
+use crate::{config::package::PackageConfig, env::EnvMap};
 
 mod cache;
 mod error;
 mod package;
 mod task;
+pub(crate) use cache::CacheConfig;
+pub(crate) use cache::CacheProviderKind;
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -326,6 +325,5 @@ impl FyrerConfig {
                 }
             }
         }
-
     }
 }

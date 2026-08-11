@@ -45,7 +45,6 @@ impl Scheduler {
             cache: cache_provider,
         }
     }
-
     pub async fn run(&mut self) -> RunSummary {
         let start_time = Instant::now();
         let levels = std::mem::take(&mut self.levels);

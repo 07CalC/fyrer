@@ -19,11 +19,9 @@ pub enum Command {
     Run {
         /// the task to run: `project:task`, a bare `task` name, or empty for all.
         task: Option<String>,
-        #[arg(long)]
-        dry_run: bool,
-        /// print task output to stdout instead of the interactive TUI.
-        #[arg(long, default_value_t = false)]
-        no_tui: bool,
+    },
+    Plan {
+        task: Option<String>,
     },
     List,
 }

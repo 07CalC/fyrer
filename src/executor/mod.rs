@@ -1,2 +1,2 @@
-mod orchestrator;
-mod scheduler;
+pub mod orchestrator;
+pub mod scheduler;
