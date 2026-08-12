@@ -23,6 +23,7 @@ packages:
           - node_modules/**
           - .next/**
         cache: false
+        cwd: dev/
       build:
         cmd: bun run build
         depends_on:

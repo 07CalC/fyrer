@@ -1,0 +1,8 @@
+.fyrer/
+**/node_modules/
+**/target/
+**/dist/
+**/bin/
+**/docs/
+**/__pycache__/
+*.pyc

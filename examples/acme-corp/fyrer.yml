@@ -1,0 +1,221 @@
+version: 1
+
+cache:
+  provider: local
+
+env:
+  NODE_ENV: development
+  LOG_LEVEL: info
+
+packages:
+  # ───────────────────────────── TypeScript / Bun ─────────────────────────────
+  - name: ui
+    root: ./packages/ui
+    env:
+      NODE_ENV: production
+    env_file: .env
+    tasks:
+      build:
+        cmd: bun build src/index.ts --outdir dist
+        inputs:
+          - src/**
+          - package.json
+          - tsconfig.json
+        outputs:
+          - dist/**
+        ignore:
+          - node_modules/**
+        cache: true
+      watch:
+        cmd: bun build src/index.ts --outdir dist --watch
+        inputs:
+          - src/**
+        outputs:
+          - dist/**
+        ignore:
+          - node_modules/**
+        cache: false
+        watch: true
+        env:
+          NODE_ENV: development
+
+  - name: web
+    root: ./apps/web
+    env:
+      PORT: "3000"
+      API_URL: http://localhost:8080
+    env_file: .env
+    tasks:
+      dev:
+        cmd: bun --watch src/index.ts
+        depends_on:
+          - ui:build
+        inputs:
+          - src/**
+          - package.json
+        ignore:
+          - node_modules/**
+          - dist/**
+        cache: false
+        persistent: true
+        env:
+          NODE_ENV: development
+      build:
+        cmd: bun build src/index.ts --outdir dist
+        depends_on:
+          - ui:build
+        inputs:
+          - src/**
+          - package.json
+        outputs:
+          - dist/**
+        ignore:
+          - node_modules/**
+        cache: true
+        env:
+          NODE_ENV: production
+
+  # ────────────────────────────── Rust / Cargo ───────────────────────────────
+  - name: shared
+    root: ./packages/shared
+    tasks:
+      build:
+        cmd: cargo build --release
+        inputs:
+          - src/**
+          - Cargo.toml
+          - Cargo.lock
+        outputs:
+          - target/release/libshared.rlib
+        ignore:
+          - target/**
+        cache: true
+
+  - name: api
+    root: ./apps/api
+    env_file: .env
+    tasks:
+      build:
+        cmd: cargo build --release
+        depends_on:
+          - shared:build
+        inputs:
+          - src/**
+          - Cargo.toml
+          - Cargo.lock
+        outputs:
+          - target/release/api
+        ignore:
+          - target/**
+        cache: true
+      dev:
+        cmd: cargo run
+        depends_on:
+          - shared:build
+        inputs:
+          - src/**
+          - Cargo.toml
+        ignore:
+          - target/**
+        cache: false
+        persistent: true
+
+  # ──────────────────────────────── Go ──────────────────────────────────────
+  - name: core
+    root: ./packages/core
+    tasks:
+      build:
+        cmd: go build -buildmode=archive -o target/core.a .
+        inputs:
+          - "*.go"
+          - go.mod
+        outputs:
+          - target/core.a
+        cache: true
+
+  - name: worker
+    root: ./apps/worker
+    env:
+      ADDR: ":9000"
+    tasks:
+      build:
+        cmd: go build -o bin/worker .
+        depends_on:
+          - core:build
+        inputs:
+          - "*.go"
+          - go.mod
+        outputs:
+          - bin/worker
+        ignore:
+          - bin/**
+        cache: true
+      dev:
+        cmd: go run .
+        depends_on:
+          - core:build
+        inputs:
+          - "*.go"
+          - go.mod
+        ignore:
+          - bin/**
+        cache: false
+        persistent: true
+
+  # ──────────────────────────────── Python ──────────────────────────────────
+  - name: cli
+    root: ./apps/cli
+    env_file: .env
+    tasks:
+      bundle:
+        cmd: python3 cli.py bundle
+        inputs:
+          - cli.py
+          - .env
+        outputs:
+          - dist/**
+        ignore:
+          - dist/**
+          - __pycache__/**
+        cache: true
+      lint:
+        cmd: python3 cli.py lint
+        inputs:
+          - cli.py
+        outputs:
+          - dist/lint-report.txt
+        ignore:
+          - dist/**
+          - __pycache__/**
+        cache: true
+      docs:
+        cmd: python3 gen-docs.py
+        cwd: scripts
+        inputs:
+          - gen-docs.py
+        outputs:
+          - ../docs/**
+        ignore:
+          - ../docs/**
+          - __pycache__/**
+        cache: true
+      serve:
+        cmd: python3 cli.py serve
+        depends_on:
+          - cli:bundle
+        inputs:
+          - cli.py
+        ignore:
+          - dist/**
+        cache: false
+        persistent: true
+        env:
+          PORT: "8010"
+      timeout-demo:
+        cmd: python3 cli.py slow
+        timeout: 2s
+        inputs:
+          - cli.py
+        ignore:
+          - __pycache__/**
+        cache: false

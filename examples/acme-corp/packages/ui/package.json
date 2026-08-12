@@ -1,0 +1,10 @@
+{
+  "name": "@acme/ui",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "bun build src/index.ts --outdir dist",
+    "watch": "bun build src/index.ts --outdir dist --watch"
+  }
+}

@@ -37,6 +37,9 @@ pub enum AppEvent {
     TaskSkipped {
         task_id: TaskId,
     },
+    RestartRequest {
+        task_id: TaskId,
+    },
     FileChanged {
         task_id: TaskId,
     },
