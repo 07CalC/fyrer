@@ -45,12 +45,6 @@ impl Ui for PlainUi {
                     }
 
                     Ok(AppEvent::RunFinished(summary)) => {
-                        println!();
-                        println!("Run finished in {:.2?}", summary.duration);
-                        println!(
-                            "  ✓ successful: {}  ✗ failed: {}  ⚡ cached: {}  ○ skipped: {}",
-                            summary.successful, summary.failed, summary.cached, summary.skipped
-                        );
                         break;
                     }
 

@@ -141,8 +141,23 @@ impl Orchestrator {
         tick_handle.abort();
         let _ = input_handle.await;
         let _ = tick_handle.await;
-        let _ = scheduler_handle.await;
-
+        let result = scheduler_handle.await;
+        match result {
+            Ok(r) => {
+                println!();
+                println!("Run completed in {:.2?}", r.duration);
+                println!();
+                println!("  Results");
+                println!("  ─────────────────────────");
+                println!("  ✓ Successful    {}", r.successful);
+                println!("  ✗ Failed        {}", r.failed);
+                println!("  ⚡ Cached       {}", r.cached);
+                println!("  ○ Skipped       {}", r.skipped);
+                println!();
+                println!("  Total           {}", r.total);
+            }
+            Err(_) => {}
+        }
         Ok(())
     }
 
@@ -166,37 +181,39 @@ impl Orchestrator {
         let input_tx = self.event_tx.clone();
         let tick_tx = self.event_tx.clone();
 
-        let input_handle = tokio::task::spawn_blocking(move || loop {
-            if stop.load(Ordering::Relaxed) {
-                break;
-            }
-            if !crossterm::event::poll(Duration::from_millis(50)).unwrap_or(false) {
-                continue;
-            }
-            match crossterm::event::read() {
-                Ok(crossterm::event::Event::Key(key)) => {
-                    if input_tx.send(AppEvent::KeyPress(key)).is_err() {
-                        break;
-                    }
+        let input_handle = tokio::task::spawn_blocking(move || {
+            loop {
+                if stop.load(Ordering::Relaxed) {
+                    break;
                 }
-                Ok(crossterm::event::Event::Mouse(mouse)) => {
-                    let dir = match mouse.kind {
-                        crossterm::event::MouseEventKind::ScrollUp => {
-                            Some(crate::events::ScrollDirection::Up)
-                        }
-                        crossterm::event::MouseEventKind::ScrollDown => {
-                            Some(crate::events::ScrollDirection::Down)
-                        }
-                        _ => None,
-                    };
-                    if let Some(d) = dir {
-                        if input_tx.send(AppEvent::MouseScroll(d)).is_err() {
+                if !crossterm::event::poll(Duration::from_millis(50)).unwrap_or(false) {
+                    continue;
+                }
+                match crossterm::event::read() {
+                    Ok(crossterm::event::Event::Key(key)) => {
+                        if input_tx.send(AppEvent::KeyPress(key)).is_err() {
                             break;
                         }
                     }
+                    Ok(crossterm::event::Event::Mouse(mouse)) => {
+                        let dir = match mouse.kind {
+                            crossterm::event::MouseEventKind::ScrollUp => {
+                                Some(crate::events::ScrollDirection::Up)
+                            }
+                            crossterm::event::MouseEventKind::ScrollDown => {
+                                Some(crate::events::ScrollDirection::Down)
+                            }
+                            _ => None,
+                        };
+                        if let Some(d) = dir {
+                            if input_tx.send(AppEvent::MouseScroll(d)).is_err() {
+                                break;
+                            }
+                        }
+                    }
+                    Err(_) => break,
+                    _ => {}
                 }
-                Err(_) => break,
-                _ => {}
             }
         });
 
