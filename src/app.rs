@@ -1,12 +1,10 @@
-use std::sync::Arc;
-
 use anyhow::Result;
 use clap::Parser;
 
 use crate::{
     cli::{Cli, Command},
     config::FyrerConfig,
-    executor::orchestrator::{self, Orchestrator},
+    executor::orchestrator::Orchestrator,
     ui::{plain::PlainUi, tui::Tui},
 };
 

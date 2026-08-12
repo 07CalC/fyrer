@@ -10,7 +10,7 @@ use glob::glob;
 use tokio::{
     io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
     process::Command,
-    sync::broadcast::{Sender, channel},
+    sync::broadcast::Sender,
     task::JoinHandle,
 };
 

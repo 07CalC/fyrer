@@ -1,5 +1,5 @@
 use std::{
-    collections::{HashMap, VecDeque},
+    collections::HashMap,
     sync::{
         Arc,
         atomic::{AtomicBool, Ordering},
@@ -110,7 +110,6 @@ impl Orchestrator {
                                 TaskState {
                                     command_tx: Some(command_tx),
                                     status: crate::task::TaskStatus::Running,
-                                    logs: VecDeque::new(),
                                 },
                             );
                         }

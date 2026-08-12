@@ -44,7 +44,7 @@ impl Ui for PlainUi {
                         println!("\x1b[90m○\x1b[0m [{task_id}] skipped");
                     }
 
-                    Ok(AppEvent::RunFinished(summary)) => {
+                    Ok(AppEvent::RunFinished(_)) => {
                         break;
                     }
 

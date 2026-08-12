@@ -141,7 +141,6 @@ impl Scheduler {
                         .task_map
                         .get(&task_id)
                         .expect("task id exists in the graph");
-                    let start = Instant::now();
                     self.try_cache_save(&task, duration.as_millis(), exit_code);
                 }
 

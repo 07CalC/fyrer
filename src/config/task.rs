@@ -29,6 +29,3 @@ pub struct TaskConfig {
     #[serde(default)]
     pub cwd: Option<PathBuf>,
 }
-fn default_env_map() -> EnvMap {
-    EnvMap::new()
-}
