@@ -2,13 +2,13 @@ version: 1
 env:
   LOG_LEVEL: info
   NODE_ENV: development
-projects:
+packages:
   - name: web
     root: ./apps/web
     env:
       PORT: "3000"
       API_URL: "http://localhost:8080"
-    env_path: .env
+    env_file: .env
     tasks:
       dev:
         cmd: bun run dev
@@ -23,9 +23,6 @@ projects:
           - node_modules/**
           - .next/**
         cache: false
-        restart:
-          strategy: FileChange
-          delay: 300
       build:
         cmd: bun run build
         depends_on:
@@ -40,13 +37,11 @@ projects:
         ignore:
           - node_modules/**
         cache: true
-        restart:
-          strategy: Never
   - name: ui
     root: ./packages/ui
     env:
       NODE_ENV: production
-    env_path: .env.production
+    env_file: .env.production
     tasks:
       build:
         cmd: bun run build
@@ -59,8 +54,6 @@ projects:
         ignore:
           - node_modules/**
         cache: true
-        restart:
-          strategy: Never
       dev:
         cmd: bun run dev
         inputs:
@@ -69,14 +62,11 @@ projects:
           - node_modules/**
           - dist/**
         cache: false
-        restart:
-          strategy: FileChange
-          delay: 200
   - name: api
     root: ./apps/api
     env:
       RUST_LOG: debug
-    env_path: .env
+    env_file: .env
     tasks:
       build:
         cmd: cargo build --release
@@ -89,8 +79,6 @@ projects:
         ignore:
           - target/**
         cache: true
-        restart:
-          strategy: Never
       dev:
         cmd: cargo watch -x run
         inputs:
@@ -98,6 +86,3 @@ projects:
         ignore:
           - target/**
         cache: false
-        restart:
-          strategy: OnFailure
-          delay: 500
