@@ -328,15 +328,25 @@ impl TuiWorker {
     }
 
     fn navigate_next(&mut self) {
-        self.list_state.select_next();
+        let len = self.task_order.len();
+        if len == 0 {
+            return;
+        }
         let idx = self.list_state.selected().unwrap_or(0);
-        self.following.insert(idx, true);
+        let next = (idx + 1) % len;
+        self.list_state.select(Some(next));
+        self.following.insert(next, true);
     }
 
     fn navigate_previous(&mut self) {
-        self.list_state.select_previous();
+        let len = self.task_order.len();
+        if len == 0 {
+            return;
+        }
         let idx = self.list_state.selected().unwrap_or(0);
-        self.following.insert(idx, true);
+        let prev = if idx == 0 { len - 1 } else { idx - 1 };
+        self.list_state.select(Some(prev));
+        self.following.insert(prev, true);
     }
 
     fn scroll_up_page(&mut self) {

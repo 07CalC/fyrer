@@ -1,6 +1,9 @@
 use std::{
     collections::{HashMap, VecDeque},
-    sync::Arc,
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    },
     time::Duration,
 };
 
@@ -81,7 +84,7 @@ impl Orchestrator {
         let ui_rx = self.event_tx.subscribe();
         let mut orch_rx = self.event_tx.subscribe();
 
-        let ui_handle: JoinHandle<Result<()>> = ui.start(ui_rx);
+        let mut ui_handle: JoinHandle<Result<()>> = ui.start(ui_rx);
 
         let event_tx = self.event_tx.clone();
         let cache = self.cache.clone();
@@ -90,54 +93,55 @@ impl Orchestrator {
 
         self.listen_for_ctrl_c();
 
-        let (input_handle, tick_handle) = self.start_input_capture();
+        let stop = Arc::new(AtomicBool::new(false));
+        let (input_handle, tick_handle) = self.start_input_capture(Arc::clone(&stop));
 
         loop {
-            match orch_rx.recv().await {
-                Ok(AppEvent::Shutdown) => {
+            tokio::select! {
+                msg = orch_rx.recv() => {
+                    match msg {
+                        Ok(AppEvent::Shutdown) => {
+                            self.kill_all_tasks();
+                            break;
+                        }
+                        Ok(AppEvent::TaskSpawned { task_id, command_tx }) => {
+                            self.tasks.insert(
+                                task_id,
+                                TaskState {
+                                    command_tx: Some(command_tx),
+                                    status: crate::task::TaskStatus::Running,
+                                    logs: VecDeque::new(),
+                                },
+                            );
+                        }
+                        Ok(AppEvent::TaskComplete { task_id }) => {
+                            if let Some(s) = self.tasks.get_mut(&task_id) {
+                                s.status = crate::task::TaskStatus::Success;
+                            }
+                        }
+                        Ok(AppEvent::TaskFailed { task_id, .. }) => {
+                            if let Some(s) = self.tasks.get_mut(&task_id) {
+                                s.status = crate::task::TaskStatus::Failed;
+                            }
+                        }
+                        Ok(AppEvent::RunFinished(_)) => {}
+                        Ok(_) => {}
+                        Err(broadcast::error::RecvError::Lagged(_)) => {}
+                        Err(broadcast::error::RecvError::Closed) => break,
+                    }
+                }
+                _ = &mut ui_handle => {
                     self.kill_all_tasks();
                     break;
                 }
-                Ok(AppEvent::TaskSpawned {
-                    task_id,
-                    command_tx,
-                }) => {
-                    self.tasks.insert(
-                        task_id,
-                        TaskState {
-                            command_tx: Some(command_tx),
-                            status: crate::task::TaskStatus::Running,
-                            logs: VecDeque::new(),
-                        },
-                    );
-                }
-                Ok(AppEvent::TaskComplete { task_id }) => {
-                    if let Some(s) = self.tasks.get_mut(&task_id) {
-                        s.status = crate::task::TaskStatus::Success;
-                    }
-                }
-                Ok(AppEvent::TaskFailed { task_id, .. }) => {
-                    if let Some(s) = self.tasks.get_mut(&task_id) {
-                        s.status = crate::task::TaskStatus::Failed;
-                    }
-                }
-                Ok(AppEvent::RunFinished(_)) => {
-                    break;
-                }
-                Ok(_) => {}
-                Err(broadcast::error::RecvError::Lagged(_)) => {}
-                Err(broadcast::error::RecvError::Closed) => break,
             }
         }
 
-        input_handle.abort();
+        stop.store(true, Ordering::Relaxed);
         tick_handle.abort();
         let _ = input_handle.await;
         let _ = tick_handle.await;
         let _ = scheduler_handle.await;
-        if let Err(e) = ui_handle.await {
-            eprintln!("UI thread panicked: {e:?}");
-        }
 
         Ok(())
     }
@@ -158,11 +162,17 @@ impl Orchestrator {
         });
     }
 
-    fn start_input_capture(&self) -> (JoinHandle<()>, JoinHandle<()>) {
+    fn start_input_capture(&self, stop: Arc<AtomicBool>) -> (JoinHandle<()>, JoinHandle<()>) {
         let input_tx = self.event_tx.clone();
         let tick_tx = self.event_tx.clone();
 
         let input_handle = tokio::task::spawn_blocking(move || loop {
+            if stop.load(Ordering::Relaxed) {
+                break;
+            }
+            if !crossterm::event::poll(Duration::from_millis(50)).unwrap_or(false) {
+                continue;
+            }
             match crossterm::event::read() {
                 Ok(crossterm::event::Event::Key(key)) => {
                     if input_tx.send(AppEvent::KeyPress(key)).is_err() {
