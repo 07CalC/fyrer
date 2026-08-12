@@ -1,10 +1,17 @@
 use std::{
     collections::{HashMap, VecDeque},
     sync::Arc,
+    time::Duration,
 };
 
 use anyhow::Result;
-use tokio::sync::broadcast::{self, Receiver, Sender};
+use crossterm::event;
+use ratatui::Terminal;
+use tokio::{
+    join,
+    sync::broadcast::{self, Receiver, Sender},
+    task::JoinHandle,
+};
 
 use crate::{
     cache::{
@@ -83,6 +90,8 @@ impl Orchestrator {
 
         // listen for Ctrl+c signal to gracefully shutdown the orchestrator and its tasks that are currently running, although we can not guarantee that all teh tasks will be terminated gracefully, if fyrer gets a SIGKILL signal, then we might not get the chance to terminate all the tasks gracefully, and some of the tasks might still be running in the background even after the orchestrator has exited
         self.listen_for_ctrl_c();
+        let input_handle = self.start_input_capture();
+        let terminal = ratatui::init();
         loop {
             tokio::select! {
                 result = &mut scheduler_handle => {
@@ -108,11 +117,21 @@ impl Orchestrator {
                         Err(broadcast::error::RecvError::Lagged(count)) => {}
                         Err(broadcast::error::RecvError::Closed) => {
                             break;
-                        }
-                    }
+                        } }
                 }
             }
         }
+        input_handle.abort();
+        let _ = input_handle.await;
+        ratatui::restore();
+        let summary = scheduler_handle.await?;
+        println!("Run summary: ");
+        println!("  Total tasks: {}", summary.total);
+        println!("  Successful tasks: {}", summary.successful);
+        println!("  Failed tasks: {}", summary.failed);
+        println!("  Skipped tasks: {}", summary.skipped);
+        println!("  Cached tasks: {}", summary.cached);
+        println!("  Duration: {:?}", summary.duration);
         Ok(())
     }
 
@@ -177,16 +196,7 @@ impl Orchestrator {
                 );
                 false
             }
-            AppEvent::RunFinished(run_summary) => {
-                println!("Run summary: ");
-                println!("  Total tasks: {}", run_summary.total);
-                println!("  Successful tasks: {}", run_summary.successful);
-                println!("  Failed tasks: {}", run_summary.failed);
-                println!("  Skipped tasks: {}", run_summary.skipped);
-                println!("  Cached tasks: {}", run_summary.cached);
-                println!("  Duration: {:?}", run_summary.duration);
-                true
-            }
+            AppEvent::RunFinished(_) => true,
             _ => false,
         }
     }
@@ -205,6 +215,55 @@ impl Orchestrator {
             tokio::signal::ctrl_c().await.unwrap();
             let _ = event_tx.send(AppEvent::Shutdown);
         });
+    }
+
+    fn start_input_capture(&self) -> JoinHandle<()> {
+        let event_tx = self.event_tx.clone();
+
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(Duration::from_millis(100));
+            loop {
+                tokio::select! {
+                    _ = interval.tick() => {
+                        if event_tx.send(AppEvent::Tick).is_err() {
+                            break;
+                        }
+                    }
+                    result = tokio::task::spawn_blocking(|| {
+                            if crossterm::event::poll(Duration::from_millis(50)).unwrap_or(false) {
+                                crossterm::event::read().ok()
+                            } else {
+                                None
+                            }
+                        }) => {
+                        match result {
+                            Ok(Some(crossterm::event::Event::Key(key_event))) => {
+                                if event_tx.send(AppEvent::KeyPress(key_event)).is_err() {
+                                    break;
+                                }
+                            }
+                            Ok(Some(crossterm::event::Event::Mouse(mouse_event))) => {
+                                let dir = match mouse_event.kind {
+                                    crossterm::event::MouseEventKind::ScrollUp => {
+                                        Some(crate::events::ScrollDirection::Up)
+                                    }
+                                    crossterm::event::MouseEventKind::ScrollDown => {
+                                        Some(crate::events::ScrollDirection::Down)
+                                    }
+                                    _ => None,
+                                };
+                                if let Some(d) = dir
+                                    && event_tx.send(AppEvent::MouseScroll(d)).is_err()
+                                {
+                                    break;
+                                }
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+            }
+        })
     }
     fn cache_provider(cache_config: &CacheConfig) -> Arc<dyn CacheProvider> {
         match cache_config.provider {
