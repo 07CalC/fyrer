@@ -232,8 +232,6 @@ impl TuiWorker {
             AppEvent::Shutdown => {
                 return Ok(true);
             }
-
-            _ => {}
         }
         Ok(false)
     }

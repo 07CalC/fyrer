@@ -3,14 +3,12 @@ use tokio::sync::mpsc::Sender;
 
 use crate::{executor::scheduler::RunSummary, task::TaskId};
 
-/// Direction of a mouse scroll event.
 #[derive(Debug, Clone, Copy)]
 pub enum ScrollDirection {
     Up,
     Down,
 }
 
-/// Which output stream a log line came from.
 #[derive(Debug, Clone, Copy)]
 pub enum LogStream {
     Stdout,
@@ -23,14 +21,6 @@ pub enum AppEvent {
     TaskLog {
         task_id: TaskId,
         stream: LogStream,
-        line: String,
-    },
-    Stdout {
-        task_id: TaskId,
-        line: String,
-    },
-    Stderr {
-        task_id: TaskId,
         line: String,
     },
     TaskComplete {
@@ -56,9 +46,6 @@ pub enum AppEvent {
         task_id: TaskId,
         command_tx: Sender<TaskCommand>,
     },
-    /// Sent once the scheduler has finished every level, including all
-    /// post-completion work (e.g. cache saves). Auto-quit waits for it so
-    /// final messages are always shown.
     RunFinished(RunSummary),
     Shutdown,
     Tick,

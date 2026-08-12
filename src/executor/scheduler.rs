@@ -144,8 +144,13 @@ impl Scheduler {
                     self.try_cache_save(&task, duration.as_millis(), exit_code);
                 }
 
-                Ok((task_id, Ok(ProcessResult::Failure { .. }))) => {
-                    self.status.insert(task_id, TaskStatus::Failed);
+                Ok((task_id, Ok(ProcessResult::Failure { exit_code, .. }))) => {
+                    self.status.insert(task_id.clone(), TaskStatus::Failed);
+                    let _ = event_tx.send(AppEvent::TaskFailed {
+                        task_id,
+                        exit_code,
+                        error: None,
+                    });
                 }
 
                 Ok((task_id, Err(e))) => {
@@ -203,9 +208,6 @@ impl Scheduler {
             eprintln!("Failed to save cache for task {}: {}", task.id, e);
         }
     }
-
-    //TODO: all error handling should be explicitly done later, for now we just treat any error as a
-    //cache miss and run the task
 
     fn cache_hit(&self, task: &Task) -> bool {
         if !task.cache {
