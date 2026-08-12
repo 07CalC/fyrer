@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use anyhow::Result;
 use clap::Parser;
 
@@ -5,6 +7,7 @@ use crate::{
     cli::{Cli, Command},
     config::FyrerConfig,
     executor::orchestrator::{self, Orchestrator},
+    ui::{plain::PlainUi, tui::Tui},
 };
 
 pub struct App {
@@ -22,9 +25,15 @@ impl App {
         let command = &self.cli.command;
         let config = FyrerConfig::new_from_path(config_path)?;
         match command {
-            Command::Run { task } => {
+            Command::Run { task, no_tui } => {
                 let mut orchestrator = Orchestrator::new(config);
-                orchestrator.run(task.as_deref()).await?;
+                if *no_tui {
+                    let ui = PlainUi::default();
+                    orchestrator.run(task.as_deref(), ui).await?;
+                } else {
+                    let ui = Tui::new();
+                    orchestrator.run(task.as_deref(), ui).await?;
+                }
             }
             Command::Plan { task } => {
                 let mut orchestrator = Orchestrator::new(config);

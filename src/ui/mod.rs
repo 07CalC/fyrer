@@ -1,22 +1,17 @@
 use anyhow::Result;
+use tokio::{sync::broadcast::Receiver, task::JoinHandle};
 
-use crate::{
-    events::LogStream,
-    task::{TaskId, TaskStatus},
-};
+use crate::events::AppEvent;
 
 pub mod plain;
 pub mod tui;
-pub trait Ui {
-    fn push_log(&mut self, task_id: &TaskId, line: String, stream: LogStream);
-    fn render(&mut self, tasks: &[(TaskId, TaskStatus)]) -> Result<()>;
-    fn navigate_next(&mut self) {}
-    fn navigate_previous(&mut self) {}
-    fn shutdown(&mut self) -> Result<()> {
-        Ok(())
-    }
-    fn scroll_logs_up(&mut self) {}
-    fn scroll_logs_down(&mut self) {}
-    fn scroll_logs_up_by(&mut self, _n: usize) {}
-    fn scroll_logs_down_by(&mut self, _n: usize) {}
+
+/// A UI backend that reacts to events broadcast by the orchestrator.
+///
+/// Implementors run their own event loop (usually on a dedicated thread) by
+/// consuming [`AppEvent`]s from the supplied broadcast receiver. The handle
+/// returned by [`Ui::start`] resolves once the UI has fully shut down — i.e.
+/// the user has acknowledged the run summary and requested to quit.
+pub trait Ui: Send + 'static {
+    fn start(self, rx: Receiver<AppEvent>) -> JoinHandle<Result<()>>;
 }

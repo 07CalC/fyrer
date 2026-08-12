@@ -5,12 +5,10 @@ use std::{
 };
 
 use anyhow::Result;
-use crossterm::event;
-use ratatui::Terminal;
 use tokio::{
-    join,
-    sync::broadcast::{self, Receiver, Sender},
+    sync::broadcast::{self, Sender},
     task::JoinHandle,
+    time,
 };
 
 use crate::{
@@ -19,17 +17,16 @@ use crate::{
         local::{DEFAULT_CACHE_DIR, LocalCacheProvider},
     },
     config::{CacheConfig, FyrerConfig},
-    events::AppEvent,
+    events::{AppEvent, TaskCommand},
     executor::scheduler::Scheduler,
     task::{TaskGraph, TaskId, TaskMap, TaskState},
+    ui::Ui,
 };
 
 pub struct Orchestrator {
-    // pub ui: Box<dyn Ui>,
     pub cache: Arc<dyn CacheProvider>,
     pub task_map: TaskMap,
     pub event_tx: Sender<AppEvent>,
-    event_rx: Receiver<AppEvent>,
     tasks: HashMap<TaskId, TaskState>,
 }
 
@@ -37,13 +34,11 @@ impl Orchestrator {
     pub fn new(config: FyrerConfig) -> Self {
         let cache = Self::cache_provider(&config.cache);
         let task_map = TaskMap::new(&config);
-        let (event_tx, event_rx) = broadcast::channel(100);
+        let (event_tx, _) = broadcast::channel(512);
         Orchestrator {
-            // ui,
             task_map,
             cache,
             event_tx,
-            event_rx,
             tasks: HashMap::new(),
         }
     }
@@ -75,7 +70,7 @@ impl Orchestrator {
         Ok(())
     }
 
-    pub async fn run(&mut self, spec: Option<&str>) -> Result<()> {
+    pub async fn run<U: Ui>(&mut self, spec: Option<&str>, ui: U) -> Result<()> {
         let graph = TaskGraph::new(self.task_map.clone())?;
         graph.validate()?;
         let tasks = self.task_map.get_tasks(spec)?;
@@ -83,128 +78,74 @@ impl Orchestrator {
             return Err(anyhow::anyhow!("No tasks found for the given specifier"));
         }
         let levels = graph.get_orders(&tasks)?;
+        let ui_rx = self.event_tx.subscribe();
+        let mut orch_rx = self.event_tx.subscribe();
+
+        let ui_handle: JoinHandle<Result<()>> = ui.start(ui_rx);
+
         let event_tx = self.event_tx.clone();
         let cache = self.cache.clone();
-        let mut scheduler = Scheduler::new(self.task_map.clone(), levels, event_tx, cache);
-        let mut scheduler_handle = tokio::spawn(async move { scheduler.run().await });
+        let mut scheduler = Scheduler::new(self.task_map.clone(), levels, event_tx.clone(), cache);
+        let scheduler_handle = tokio::spawn(async move { scheduler.run().await });
 
-        // listen for Ctrl+c signal to gracefully shutdown the orchestrator and its tasks that are currently running, although we can not guarantee that all teh tasks will be terminated gracefully, if fyrer gets a SIGKILL signal, then we might not get the chance to terminate all the tasks gracefully, and some of the tasks might still be running in the background even after the orchestrator has exited
         self.listen_for_ctrl_c();
-        let input_handle = self.start_input_capture();
-        let terminal = ratatui::init();
+
+        let (input_handle, tick_handle) = self.start_input_capture();
+
         loop {
-            tokio::select! {
-                result = &mut scheduler_handle => {
-                    match result {
-                        Ok(res) => {
-                            println!("Scheduler finished with result: {:?}", res);
-                            break;
-                        }
-                        Err(e) => {
-                            eprintln!("Scheduler task panicked: {:?}", e);
-                            break;
-                        }
+            match orch_rx.recv().await {
+                Ok(AppEvent::Shutdown) => {
+                    self.kill_all_tasks();
+                    break;
+                }
+                Ok(AppEvent::TaskSpawned {
+                    task_id,
+                    command_tx,
+                }) => {
+                    self.tasks.insert(
+                        task_id,
+                        TaskState {
+                            command_tx: Some(command_tx),
+                            status: crate::task::TaskStatus::Running,
+                            logs: VecDeque::new(),
+                        },
+                    );
+                }
+                Ok(AppEvent::TaskComplete { task_id }) => {
+                    if let Some(s) = self.tasks.get_mut(&task_id) {
+                        s.status = crate::task::TaskStatus::Success;
                     }
                 }
-                event = self.event_rx.recv() => {
-                    match event {
-                        Ok(app_event) => {
-                            let quit = self.consume_event(app_event).await;
-                            if quit {
-                                break;
-                            }
-                        }
-                        Err(broadcast::error::RecvError::Lagged(count)) => {}
-                        Err(broadcast::error::RecvError::Closed) => {
-                            break;
-                        } }
+                Ok(AppEvent::TaskFailed { task_id, .. }) => {
+                    if let Some(s) = self.tasks.get_mut(&task_id) {
+                        s.status = crate::task::TaskStatus::Failed;
+                    }
                 }
+                Ok(AppEvent::RunFinished(_)) => {
+                    break;
+                }
+                Ok(_) => {}
+                Err(broadcast::error::RecvError::Lagged(_)) => {}
+                Err(broadcast::error::RecvError::Closed) => break,
             }
         }
+
         input_handle.abort();
+        tick_handle.abort();
         let _ = input_handle.await;
-        ratatui::restore();
-        let summary = scheduler_handle.await?;
-        println!("Run summary: ");
-        println!("  Total tasks: {}", summary.total);
-        println!("  Successful tasks: {}", summary.successful);
-        println!("  Failed tasks: {}", summary.failed);
-        println!("  Skipped tasks: {}", summary.skipped);
-        println!("  Cached tasks: {}", summary.cached);
-        println!("  Duration: {:?}", summary.duration);
+        let _ = tick_handle.await;
+        let _ = scheduler_handle.await;
+        if let Err(e) = ui_handle.await {
+            eprintln!("UI thread panicked: {e:?}");
+        }
+
         Ok(())
     }
 
-    /// returned bool indicates whether the orchestrator main loop should break or not, if all
-    /// tasks are exited (either completed or failed) and the orchestrator is in shutdown
-    /// mode, then it should break
-    async fn consume_event(&mut self, event: AppEvent) -> bool {
-        match event {
-            AppEvent::Shutdown => {
-                self.shutdown();
-                false
-            }
-            AppEvent::TaskSpawned {
-                task_id,
-                command_tx,
-            } => {
-                self.tasks.insert(
-                    task_id.clone(),
-                    TaskState {
-                        command_tx: Some(command_tx),
-                        status: crate::task::TaskStatus::Running,
-                        logs: VecDeque::new(),
-                    },
-                );
-                false
-            }
-            AppEvent::KeyPress(key_event) => {
-                if key_event.code == crossterm::event::KeyCode::Char('q') {
-                    self.shutdown();
-                }
-                false
-            }
-            AppEvent::TaskLog {
-                task_id,
-                stream,
-                line,
-            } => {
-                //TODO: add a log buffer to the task state, the logs printing will be
-                //handled by the UI and not the orchestrator, the log buffers will be
-                //responsible for persisting these logs
-                println!("[{}][{:?}] {}", task_id, stream, line);
-                false
-            }
-            AppEvent::TaskComplete { task_id } => {
-                if let Some(task_state) = self.tasks.get_mut(&task_id) {
-                    task_state.status = crate::task::TaskStatus::Success;
-                }
-                // self.safe_to_quit()
-                false
-            }
-            AppEvent::TaskFailed {
-                task_id,
-                exit_code,
-                error,
-            } => {
-                if let Some(task_state) = self.tasks.get_mut(&task_id) {
-                    task_state.status = crate::task::TaskStatus::Failed;
-                }
-                eprintln!(
-                    "Task {} failed with exit code {}: {:?}",
-                    task_id, exit_code, error
-                );
-                false
-            }
-            AppEvent::RunFinished(_) => true,
-            _ => false,
-        }
-    }
-
-    fn shutdown(&mut self) {
-        for (_, task_state) in &mut self.tasks {
-            if let Some(command_tx) = &task_state.command_tx {
-                let _ = command_tx.try_send(crate::events::TaskCommand::Kill);
+    fn kill_all_tasks(&mut self) {
+        for task_state in self.tasks.values() {
+            if let Some(tx) = &task_state.command_tx {
+                let _ = tx.try_send(TaskCommand::Kill);
             }
         }
     }
@@ -217,54 +158,51 @@ impl Orchestrator {
         });
     }
 
-    fn start_input_capture(&self) -> JoinHandle<()> {
-        let event_tx = self.event_tx.clone();
+    fn start_input_capture(&self) -> (JoinHandle<()>, JoinHandle<()>) {
+        let input_tx = self.event_tx.clone();
+        let tick_tx = self.event_tx.clone();
 
-        tokio::spawn(async move {
-            let mut interval = tokio::time::interval(Duration::from_millis(100));
-            loop {
-                tokio::select! {
-                    _ = interval.tick() => {
-                        if event_tx.send(AppEvent::Tick).is_err() {
+        let input_handle = tokio::task::spawn_blocking(move || loop {
+            match crossterm::event::read() {
+                Ok(crossterm::event::Event::Key(key)) => {
+                    if input_tx.send(AppEvent::KeyPress(key)).is_err() {
+                        break;
+                    }
+                }
+                Ok(crossterm::event::Event::Mouse(mouse)) => {
+                    let dir = match mouse.kind {
+                        crossterm::event::MouseEventKind::ScrollUp => {
+                            Some(crate::events::ScrollDirection::Up)
+                        }
+                        crossterm::event::MouseEventKind::ScrollDown => {
+                            Some(crate::events::ScrollDirection::Down)
+                        }
+                        _ => None,
+                    };
+                    if let Some(d) = dir {
+                        if input_tx.send(AppEvent::MouseScroll(d)).is_err() {
                             break;
                         }
                     }
-                    result = tokio::task::spawn_blocking(|| {
-                            if crossterm::event::poll(Duration::from_millis(50)).unwrap_or(false) {
-                                crossterm::event::read().ok()
-                            } else {
-                                None
-                            }
-                        }) => {
-                        match result {
-                            Ok(Some(crossterm::event::Event::Key(key_event))) => {
-                                if event_tx.send(AppEvent::KeyPress(key_event)).is_err() {
-                                    break;
-                                }
-                            }
-                            Ok(Some(crossterm::event::Event::Mouse(mouse_event))) => {
-                                let dir = match mouse_event.kind {
-                                    crossterm::event::MouseEventKind::ScrollUp => {
-                                        Some(crate::events::ScrollDirection::Up)
-                                    }
-                                    crossterm::event::MouseEventKind::ScrollDown => {
-                                        Some(crate::events::ScrollDirection::Down)
-                                    }
-                                    _ => None,
-                                };
-                                if let Some(d) = dir
-                                    && event_tx.send(AppEvent::MouseScroll(d)).is_err()
-                                {
-                                    break;
-                                }
-                            }
-                            _ => {}
-                        }
-                    }
+                }
+                Err(_) => break,
+                _ => {}
+            }
+        });
+
+        let tick_handle = tokio::spawn(async move {
+            let mut interval = time::interval(Duration::from_millis(100));
+            loop {
+                interval.tick().await;
+                if tick_tx.send(AppEvent::Tick).is_err() {
+                    break;
                 }
             }
-        })
+        });
+
+        (input_handle, tick_handle)
     }
+
     fn cache_provider(cache_config: &CacheConfig) -> Arc<dyn CacheProvider> {
         match cache_config.provider {
             crate::config::CacheProviderKind::Local => {

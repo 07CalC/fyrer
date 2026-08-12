@@ -19,6 +19,8 @@ pub enum Command {
     Run {
         /// the task to run: `project:task`, a bare `task` name, or empty for all.
         task: Option<String>,
+        #[arg(short, long)]
+        no_tui: bool,
     },
     Plan {
         task: Option<String>,
