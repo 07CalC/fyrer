@@ -329,17 +329,24 @@ impl Task {
         }
 
         //TODO: implement ignore behaviour
-        for input in &self.inputs {
-            let entries = match glob(input) {
-                Ok(p) => p,
-                Err(_) => continue,
-            };
-            for entry in entries {
-                if let Ok(path) = entry {
-                    if path.is_file() {
-                        hash_file(&mut hasher, &path)?;
-                    }
-                }
+        // for input in &self.inputs {
+        //     let entries = match glob(input) {
+        //         Ok(p) => p,
+        //         Err(_) => continue,
+        //     };
+        //     for entry in entries {
+        //         if let Ok(path) = entry {
+        //             if path.is_file() {
+        //                 hash_file(&mut hasher, &path)?;
+        //             }
+        //         }
+        //     }
+        // }
+        let inputs = self.resolve_inputs();
+        for input in inputs {
+            if input.is_file() {
+                dbg!("hashing input file: {:?}", &input);
+                hash_file(&mut hasher, &input)?;
             }
         }
         for dep_id in &self.depends_on {
