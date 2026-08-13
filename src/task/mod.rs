@@ -328,20 +328,6 @@ impl Task {
             hash_kv(&mut hasher, key, value);
         }
 
-        //TODO: implement ignore behaviour
-        // for input in &self.inputs {
-        //     let entries = match glob(input) {
-        //         Ok(p) => p,
-        //         Err(_) => continue,
-        //     };
-        //     for entry in entries {
-        //         if let Ok(path) = entry {
-        //             if path.is_file() {
-        //                 hash_file(&mut hasher, &path)?;
-        //             }
-        //         }
-        //     }
-        // }
         let inputs = self.resolve_inputs();
         for input in inputs {
             if input.is_file() {
@@ -359,20 +345,6 @@ impl Task {
 
     pub fn output_digest(&self) -> Result<OutputDigest> {
         let mut hasher = blake3::Hasher::new();
-        // TODO: test the below and remove ts
-        // for output in &self.outputs {
-        //     let entries = match glob(output) {
-        //         Ok(p) => p,
-        //         Err(_) => continue,
-        //     };
-        //     for entry in entries {
-        //         if let Ok(path) = entry {
-        //             if path.is_file() {
-        //                 hash_file(&mut hasher, &path)?;
-        //             }
-        //         }
-        //     }
-        // }
         let outputs = self.resolve_outputs();
         for output in outputs {
             if output.is_file() {
