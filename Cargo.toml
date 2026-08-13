@@ -28,7 +28,6 @@ tar = "0.4.46"
 tempfile = "3.27.0"
 thiserror = "1.0"
 tokio = { version = "1.30", features = ["full"] }
-windows = "0.62.2"
 zstd = "0.13.3"
 
 [lints.clippy]

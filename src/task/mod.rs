@@ -1,5 +1,6 @@
 use std::{
     collections::HashSet,
+    os::unix::process::ExitStatusExt,
     path::PathBuf,
     process::Stdio,
     time::{Duration, Instant},
@@ -374,9 +375,10 @@ impl Task {
         Ok(hasher.finalize().to_hex().to_string())
     }
 
+    /// ignore patterns doesn't have any effect on outputs, so we don't need to resolve them
+    /// here
     pub fn resolve_outputs(&self) -> Vec<PathBuf> {
         let mut resolved = Vec::new();
-        let ignore_paths = self.resolve_ignore();
 
         for output in &self.outputs {
             let entries = match glob(self.cwd.join(output).to_string_lossy().as_ref()) {
@@ -385,9 +387,6 @@ impl Task {
             };
             for entry in entries {
                 if let Ok(path) = entry {
-                    if ignore_paths.contains(&path) {
-                        continue;
-                    }
                     resolved.push(path);
                 }
             }
@@ -395,6 +394,7 @@ impl Task {
         resolved
     }
 
+    /// inputs should not contain the paths matching the ignore patterns
     pub fn resolve_inputs(&self) -> Vec<PathBuf> {
         let mut resolved = Vec::new();
         let ignore_paths = self.resolve_ignore();
