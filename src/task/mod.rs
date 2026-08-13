@@ -1,9 +1,12 @@
 use std::{
-    os::unix::process::ExitStatusExt,
+    collections::HashSet,
     path::PathBuf,
     process::Stdio,
     time::{Duration, Instant},
 };
+
+#[cfg(unix)]
+use std::os::unix::process::CommandExt;
 
 use anyhow::Result;
 use glob::glob;
@@ -149,6 +152,7 @@ impl Task {
                                 },
                             ),
                             Ok(s) => {
+                                #[cfg(unix)]
                                 if let Some(_) = s.signal() {
                                         (AppEvent::TaskComplete {
                                             task_id: task_id.clone(),
@@ -166,6 +170,17 @@ impl Task {
                                             error: timeout_error,
                                         })
                                 }
+                                #[cfg(windows)]
+                                (AppEvent::TaskFailed {
+                                    task_id: task_id.clone(),
+                                    exit_code: s.code().unwrap_or(-1),
+                                    error: timeout_error.clone(),
+                                },
+                                ProcessResult::Failure {
+                                    exit_code: s.code().unwrap_or(-1),
+                                    duration,
+                                    error: timeout_error,
+                                })
                             },
                             Err(e) => {
                                 let error = format!(
@@ -287,7 +302,16 @@ impl Task {
         // setting the pgid to 0 will make the child process the leader of a new process
         // this is important because we want to be able to kill the entire process group
         // when the task is stopped
+        //
+        //NOTE: this is unix only, on windows we will have to use job objects or something similar, there is nothing for windows equivalent to process gorups yet, so we can not really do something about it
+        #[cfg(unix)]
         command.process_group(0);
+        // ref: https://learn.microsoft.com/en-us/windows/win32/procthread/process-creation-flags
+        // this still does not gurantee that all the child process will be killed, but it
+        // is the best we can do for now, we will have to use job objects or something
+        // similar in the future
+        #[cfg(windows)]
+        command.creation_flags(0x00000200);
         command
     }
 
@@ -327,17 +351,24 @@ impl Task {
 
     pub fn output_digest(&self) -> Result<OutputDigest> {
         let mut hasher = blake3::Hasher::new();
-        for output in &self.outputs {
-            let entries = match glob(output) {
-                Ok(p) => p,
-                Err(_) => continue,
-            };
-            for entry in entries {
-                if let Ok(path) = entry {
-                    if path.is_file() {
-                        hash_file(&mut hasher, &path)?;
-                    }
-                }
+        // TODO: test the below and remove ts
+        // for output in &self.outputs {
+        //     let entries = match glob(output) {
+        //         Ok(p) => p,
+        //         Err(_) => continue,
+        //     };
+        //     for entry in entries {
+        //         if let Ok(path) = entry {
+        //             if path.is_file() {
+        //                 hash_file(&mut hasher, &path)?;
+        //             }
+        //         }
+        //     }
+        // }
+        let outputs = self.resolve_outputs();
+        for output in outputs {
+            if output.is_file() {
+                hash_file(&mut hasher, &output)?;
             }
         }
         Ok(hasher.finalize().to_hex().to_string())
@@ -345,6 +376,8 @@ impl Task {
 
     pub fn resolve_outputs(&self) -> Vec<PathBuf> {
         let mut resolved = Vec::new();
+        let ignore_paths = self.resolve_ignore();
+
         for output in &self.outputs {
             let entries = match glob(self.cwd.join(output).to_string_lossy().as_ref()) {
                 Ok(p) => p,
@@ -352,10 +385,51 @@ impl Task {
             };
             for entry in entries {
                 if let Ok(path) = entry {
+                    if ignore_paths.contains(&path) {
+                        continue;
+                    }
                     resolved.push(path);
                 }
             }
         }
         resolved
+    }
+
+    pub fn resolve_inputs(&self) -> Vec<PathBuf> {
+        let mut resolved = Vec::new();
+        let ignore_paths = self.resolve_ignore();
+
+        for input in &self.inputs {
+            let entries = match glob(self.cwd.join(input).to_string_lossy().as_ref()) {
+                Ok(p) => p,
+                Err(_) => continue,
+            };
+            for entry in entries {
+                if let Ok(path) = entry {
+                    if ignore_paths.contains(&path) {
+                        continue;
+                    }
+                    resolved.push(path);
+                }
+            }
+        }
+        resolved
+    }
+
+    pub fn resolve_ignore(&self) -> HashSet<PathBuf> {
+        let mut ignore_paths = HashSet::new();
+
+        for ignore in &self.ignore {
+            let entries = match glob(self.cwd.join(ignore).to_string_lossy().as_ref()) {
+                Ok(p) => p,
+                Err(_) => continue,
+            };
+            for entry in entries {
+                if let Ok(path) = entry {
+                    ignore_paths.insert(path);
+                }
+            }
+        }
+        ignore_paths
     }
 }
