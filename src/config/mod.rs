@@ -1,3 +1,4 @@
+use std::fs::File;
 use std::{collections::HashSet, path::Path};
 
 use anyhow::Result;
@@ -26,12 +27,13 @@ pub struct FyrerConfig {
 
 impl FyrerConfig {
     pub fn new_from_path(path: impl AsRef<Path>) -> Result<Self> {
-        let config_str =
-            std::fs::read_to_string(path.as_ref()).map_err(|e| error::ConfigError::Io(e))?;
-        let config = Self::new_from_str(&config_str)?;
+        let file = File::open(path.as_ref()).map_err(|e| error::ConfigError::Io(e))?;
+        let config: Self =
+            serde_yaml::from_reader(file).map_err(|e| error::ConfigError::Deserialization(e))?;
         Ok(config)
     }
 
+    #[allow(dead_code)]
     fn new_from_str(content: &str) -> Result<Self> {
         let config: Self =
             serde_yaml::from_str(content).map_err(|e| error::ConfigError::Deserialization(e))?;
