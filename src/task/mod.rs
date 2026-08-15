@@ -1,13 +1,9 @@
 use std::{
     collections::HashSet,
-    os::unix::process::ExitStatusExt,
     path::PathBuf,
     process::Stdio,
     time::{Duration, Instant},
 };
-
-#[cfg(unix)]
-use std::os::unix::process::CommandExt;
 
 use anyhow::Result;
 use glob::glob;
@@ -154,6 +150,7 @@ impl Task {
                             ),
                             Ok(s) => {
                                 #[cfg(unix)]
+                                use std::os::unix::process::ExitStatusExt;
                                 if let Some(_) = s.signal() {
                                         (AppEvent::TaskComplete {
                                             task_id: task_id.clone(),
