@@ -22,6 +22,7 @@ use crate::{
     config::{CacheConfig, FyrerConfig},
     events::{AppEvent, TaskCommand},
     executor::scheduler::Scheduler,
+    logs::error_collector::ErrorCollector,
     task::{TaskGraph, TaskId, TaskMap, TaskState},
     ui::Ui,
 };
@@ -95,6 +96,7 @@ impl Orchestrator {
 
         let stop = Arc::new(AtomicBool::new(false));
         let (input_handle, tick_handle) = self.start_input_capture(Arc::clone(&stop));
+        let mut error_collector = ErrorCollector::new();
 
         loop {
             tokio::select! {
@@ -123,6 +125,12 @@ impl Orchestrator {
                                 s.status = crate::task::TaskStatus::Failed;
                             }
                         }
+                        Ok(AppEvent::NonFatalError { task_id, error }) => {
+                            error_collector.push_error(task_id, error);
+                        }
+                        Ok(AppEvent::Warning{ task_id, message }) => {
+                            error_collector.push_warning(task_id, message);
+                        }
                         Ok(AppEvent::RunFinished(_)) => {}
                         Ok(_) => {}
                         Err(broadcast::error::RecvError::Lagged(_)) => {}
@@ -141,6 +149,7 @@ impl Orchestrator {
         let _ = input_handle.await;
         let _ = tick_handle.await;
         let result = scheduler_handle.await;
+        error_collector.finalize();
         match result {
             Ok(r) => {
                 println!();

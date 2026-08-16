@@ -50,6 +50,14 @@ pub enum AppEvent {
         command_tx: Sender<TaskCommand>,
     },
     RunFinished(RunSummary),
+    NonFatalError {
+        task_id: Option<TaskId>,
+        error: String,
+    },
+    Warning {
+        task_id: Option<TaskId>,
+        message: String,
+    },
     Shutdown,
     Tick,
 }
