@@ -1,11 +1,15 @@
 use std::fs::File;
-use std::{collections::HashSet, path::Path};
+use std::{
+    collections::HashSet,
+    path::{Path, PathBuf},
+};
 
 use anyhow::Result;
 use glob::Pattern;
 use serde::Deserialize;
 
-use crate::{config::package::PackageConfig, env::EnvMap};
+use crate::utils::path::ResolvePath;
+use crate::{config::package::PackageConfig, utils::env::EnvMap};
 
 mod cache;
 mod error;
@@ -23,20 +27,29 @@ pub struct FyrerConfig {
     #[serde(default)]
     pub env: EnvMap,
     pub packages: Vec<PackageConfig>,
+    /// root directory of the workspace, derived from the config file location;
+    /// `$WORKSPACE`-prefixed paths resolve against this
+    #[serde(skip)]
+    pub workspace_root: PathBuf,
 }
 
 impl FyrerConfig {
     pub fn new_from_path(path: impl AsRef<Path>) -> Result<Self> {
         let file = File::open(path.as_ref()).map_err(|e| error::ConfigError::Io(e))?;
-        let config: Self =
+        let mut config: Self =
             serde_yaml::from_reader(file).map_err(|e| error::ConfigError::Deserialization(e))?;
+        config.workspace_root = path
+            .as_ref()
+            .parent()
+            .map_or_else(|| PathBuf::from("."), Path::to_path_buf);
         Ok(config)
     }
 
     #[allow(dead_code)]
     fn new_from_str(content: &str) -> Result<Self> {
-        let config: Self =
+        let mut config: Self =
             serde_yaml::from_str(content).map_err(|e| error::ConfigError::Deserialization(e))?;
+        config.workspace_root = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
         Ok(config)
     }
 
@@ -78,14 +91,6 @@ impl FyrerConfig {
                 )
                 .into());
             }
-            if !package.root.is_dir() {
-                return Err(error::ConfigError::Validation(
-                    error::ValidationError::ProjectRootDoesNotExist {
-                        project: package.name.clone(),
-                    },
-                )
-                .into());
-            }
             if package.root.is_absolute() {
                 return Err(error::ConfigError::Validation(
                     error::ValidationError::AbsoluteProjectRoot {
@@ -94,8 +99,20 @@ impl FyrerConfig {
                 )
                 .into());
             }
+            let root = package
+                .root
+                .resolve_path(&self.workspace_root)
+                .unwrap_or_else(|| package.root.clone());
+            if !root.is_dir() {
+                return Err(error::ConfigError::Validation(
+                    error::ValidationError::ProjectRootDoesNotExist {
+                        project: package.name.clone(),
+                    },
+                )
+                .into());
+            }
             if let Some(env_file) = &package.env_file {
-                if package.root.join(env_file).is_absolute() {
+                if env_file.is_absolute() {
                     return Err(error::ConfigError::Validation(
                         error::ValidationError::AbsolutePath {
                             project: package.name.clone(),
@@ -105,12 +122,15 @@ impl FyrerConfig {
                     )
                     .into());
                 }
-                if !package.root.join(env_file).exists() {
+                let env_file = env_file
+                    .resolve_path(&self.workspace_root)
+                    .unwrap_or_else(|| root.join(env_file));
+                if !env_file.exists() {
                     return Err(error::ConfigError::Validation(
                         error::ValidationError::EnvFileNotFound {
                             project: package.name.clone(),
                             task: "N/A".to_string(),
-                            file: env_file.clone(),
+                            file: env_file.to_string_lossy().to_string(),
                         },
                     )
                     .into());
@@ -131,6 +151,10 @@ impl FyrerConfig {
     /// 8. task env_file must be relative and exist if specified
     fn validate_tasks(&self) -> Result<()> {
         for package in &self.packages {
+            let root = package
+                .root
+                .resolve_path(&self.workspace_root)
+                .unwrap_or_else(|| package.root.clone());
             let mut task_names = HashSet::new();
             for (task_name, task_config) in &package.tasks {
                 if !task_names.insert(task_name) {
@@ -143,7 +167,7 @@ impl FyrerConfig {
                     .into());
                 }
                 if let Some(env_file) = &task_config.env_file {
-                    if package.root.join(env_file).is_absolute() {
+                    if env_file.is_absolute() {
                         return Err(error::ConfigError::Validation(
                             error::ValidationError::AbsolutePath {
                                 project: package.name.clone(),
@@ -153,12 +177,15 @@ impl FyrerConfig {
                         )
                         .into());
                     }
-                    if !package.root.join(env_file).exists() {
+                    let env_file = env_file
+                        .resolve_path(&self.workspace_root)
+                        .unwrap_or_else(|| root.join(env_file));
+                    if !env_file.exists() {
                         return Err(error::ConfigError::Validation(
                             error::ValidationError::EnvFileNotFound {
                                 project: package.name.clone(),
                                 task: task_name.clone(),
-                                file: env_file.clone(),
+                                file: env_file.to_string_lossy().to_string(),
                             },
                         )
                         .into());
@@ -183,7 +210,7 @@ impl FyrerConfig {
                     .into());
                 }
                 if let Some(cwd) = &task_config.cwd {
-                    if package.root.join(cwd).is_absolute() {
+                    if cwd.is_absolute() {
                         return Err(error::ConfigError::Validation(
                             error::ValidationError::AbsolutePath {
                                 project: package.name.clone(),
@@ -193,7 +220,10 @@ impl FyrerConfig {
                         )
                         .into());
                     }
-                    if !package.root.join(cwd).exists() {
+                    let cwd = cwd
+                        .resolve_path(&self.workspace_root)
+                        .unwrap_or_else(|| root.join(cwd));
+                    if !cwd.exists() {
                         return Err(error::ConfigError::Validation(
                             error::ValidationError::InvalidCwd {
                                 project: package.name.clone(),
@@ -297,33 +327,37 @@ impl FyrerConfig {
 
     pub fn list_tasks(&self) {
         for package in &self.packages {
-            println!("Package: {}", package.name);
-            for (task_name, task_config) in &package.tasks {
-                println!("  Task: {}", task_name);
-                println!("    Command: {}", task_config.cmd);
-                if let Some(cwd) = &task_config.cwd {
-                    println!("    CWD: {}", cwd.display());
+            println!("\n{}", package.name);
+            for (task_name, task) in &package.tasks {
+                println!("  {}:", task_name);
+                println!("    command  {}", task.cmd);
+                if let Some(cwd) = &task.cwd {
+                    println!("    cwd      {}", cwd.display());
                 }
-                if !task_config.ignore.is_empty() {
-                    println!("    Ignore: {:?}", task_config.ignore);
+                if !task.inputs.is_empty() {
+                    println!("    inputs   {:?}", task.inputs);
                 }
-                if !task_config.inputs.is_empty() {
-                    println!("    Inputs: {:?}", task_config.inputs);
+                if !task.outputs.is_empty() {
+                    println!("    outputs  {:?}", task.outputs);
                 }
-                if !task_config.outputs.is_empty() {
-                    println!("    Outputs: {:?}", task_config.outputs);
+                if !task.ignore.is_empty() {
+                    println!("    ignore   {:?}", task.ignore);
                 }
-                if let Some(timeout) = &task_config.timeout {
-                    println!("    Timeout: {:?}", timeout);
+                if let Some(timeout) = &task.timeout {
+                    println!("    timeout  {:?}", timeout);
                 }
-                if task_config.cache {
-                    println!("    Cache: true");
-                }
-                if task_config.persistent {
-                    println!("    Persistent: true");
-                }
-                if task_config.watch {
-                    println!("    Watch: true");
+                if task.cache || task.persistent || task.watch {
+                    let mut flags = Vec::new();
+                    if task.cache {
+                        flags.push("cache");
+                    }
+                    if task.persistent {
+                        flags.push("persistent");
+                    }
+                    if task.watch {
+                        flags.push("watch");
+                    }
+                    println!("    flags    {}", flags.join(", "));
                 }
             }
         }

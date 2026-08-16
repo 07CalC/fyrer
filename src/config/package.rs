@@ -2,7 +2,7 @@ use std::{collections::HashMap, path::PathBuf};
 
 use serde::Deserialize;
 
-use crate::{config::task::TaskConfig, env::EnvMap};
+use crate::{config::task::TaskConfig, utils::env::EnvMap};
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -12,7 +12,7 @@ pub struct PackageConfig {
     #[serde(default)]
     pub env: EnvMap,
     #[serde(default)]
-    pub env_file: Option<String>,
+    pub env_file: Option<PathBuf>,
     #[serde(default = "default_tasks")]
     pub tasks: HashMap<String, TaskConfig>,
 }
