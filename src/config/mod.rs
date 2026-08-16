@@ -297,33 +297,37 @@ impl FyrerConfig {
 
     pub fn list_tasks(&self) {
         for package in &self.packages {
-            println!("Package: {}", package.name);
-            for (task_name, task_config) in &package.tasks {
-                println!("  Task: {}", task_name);
-                println!("    Command: {}", task_config.cmd);
-                if let Some(cwd) = &task_config.cwd {
-                    println!("    CWD: {}", cwd.display());
+            println!("\n{}", package.name);
+            for (task_name, task) in &package.tasks {
+                println!("  {}:", task_name);
+                println!("    command  {}", task.cmd);
+                if let Some(cwd) = &task.cwd {
+                    println!("    cwd      {}", cwd.display());
                 }
-                if !task_config.ignore.is_empty() {
-                    println!("    Ignore: {:?}", task_config.ignore);
+                if !task.inputs.is_empty() {
+                    println!("    inputs   {:?}", task.inputs);
                 }
-                if !task_config.inputs.is_empty() {
-                    println!("    Inputs: {:?}", task_config.inputs);
+                if !task.outputs.is_empty() {
+                    println!("    outputs  {:?}", task.outputs);
                 }
-                if !task_config.outputs.is_empty() {
-                    println!("    Outputs: {:?}", task_config.outputs);
+                if !task.ignore.is_empty() {
+                    println!("    ignore   {:?}", task.ignore);
                 }
-                if let Some(timeout) = &task_config.timeout {
-                    println!("    Timeout: {:?}", timeout);
+                if let Some(timeout) = &task.timeout {
+                    println!("    timeout  {:?}", timeout);
                 }
-                if task_config.cache {
-                    println!("    Cache: true");
-                }
-                if task_config.persistent {
-                    println!("    Persistent: true");
-                }
-                if task_config.watch {
-                    println!("    Watch: true");
+                if task.cache || task.persistent || task.watch {
+                    let mut flags = Vec::new();
+                    if task.cache {
+                        flags.push("cache");
+                    }
+                    if task.persistent {
+                        flags.push("persistent");
+                    }
+                    if task.watch {
+                        flags.push("watch");
+                    }
+                    println!("    flags    {}", flags.join(", "));
                 }
             }
         }
