@@ -5,7 +5,7 @@ use anyhow::Result;
 use glob::Pattern;
 use serde::Deserialize;
 
-use crate::{config::package::PackageConfig, env::EnvMap};
+use crate::{config::package::PackageConfig, utils::env::EnvMap};
 
 mod cache;
 mod error;
@@ -110,7 +110,7 @@ impl FyrerConfig {
                         error::ValidationError::EnvFileNotFound {
                             project: package.name.clone(),
                             task: "N/A".to_string(),
-                            file: env_file.clone(),
+                            file: env_file.to_string_lossy().to_string(),
                         },
                     )
                     .into());
@@ -158,7 +158,7 @@ impl FyrerConfig {
                             error::ValidationError::EnvFileNotFound {
                                 project: package.name.clone(),
                                 task: task_name.clone(),
-                                file: env_file.clone(),
+                                file: env_file.to_string_lossy().to_string(),
                             },
                         )
                         .into());

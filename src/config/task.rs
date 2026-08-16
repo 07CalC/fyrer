@@ -1,4 +1,4 @@
-use crate::env::EnvMap;
+use crate::utils::env::EnvMap;
 use serde::Deserialize;
 use std::{path::PathBuf, time::Duration};
 
@@ -19,7 +19,7 @@ pub struct TaskConfig {
     #[serde(default)]
     pub env: EnvMap,
     #[serde(default)]
-    pub env_file: Option<String>,
+    pub env_file: Option<PathBuf>,
     #[serde(default)]
     pub persistent: bool,
     #[serde(default)]

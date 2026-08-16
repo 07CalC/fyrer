@@ -4,8 +4,9 @@ use anyhow::Result;
 
 use crate::{
     config::FyrerConfig,
-    env::merge_envs,
     task::{Task, TaskId},
+    utils::env::merge_envs,
+    utils::path::ResolvePath,
 };
 
 /// task map will be immutable after creation, so we can use Arc to share tasks between threads
@@ -61,16 +62,26 @@ impl From<&FyrerConfig> for TaskMap {
     fn from(value: &FyrerConfig) -> Self {
         let mut tasks = HashMap::new();
         for package in &value.packages {
-            let package_env_file = package
-                .env_file
-                .as_ref()
-                .map(|file| package.root.join(file));
+            let package_env_file = package.env_file.as_ref().map(|file| {
+                if file.to_string_lossy().starts_with("$WORKSPACE") {
+                    file.resolve_path()
+                } else {
+                    package.root.resolve_path().join(file)
+                }
+            });
             for (task_name, task) in &package.tasks {
                 let task_id = TaskId::new(&package.name, task_name);
                 let cwd = package
                     .root
+                    .resolve_path()
                     .join(&task.cwd.as_ref().unwrap_or(&PathBuf::from(".")));
-                let task_env_file = task.env_file.as_ref().map(|file| package.root.join(file));
+                let task_env_file = task.env_file.as_ref().map(|file| {
+                    if file.to_string_lossy().starts_with("$WORKSPACE") {
+                        file.resolve_path()
+                    } else {
+                        package.root.resolve_path().join(file)
+                    }
+                });
                 let env = merge_envs(
                     &value.env,
                     &package.env,

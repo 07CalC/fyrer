@@ -16,9 +16,9 @@ use tokio::{
 
 use crate::{
     cache::hash::{OutputDigest, hash_file, hash_kv},
-    env::EnvMap,
     events::{AppEvent, TaskCommand},
     task::error::TaskError,
+    utils::env::EnvMap,
 };
 
 mod error;

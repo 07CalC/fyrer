@@ -27,7 +27,6 @@ pub fn merge_envs(
     let task_file_env = task_env_file
         .and_then(|path| read_env_file(path).ok())
         .unwrap_or_default();
-
     let mut merged_env = merge(global_env, &project_file_env);
     merged_env = merge(&merged_env, project_env);
     merged_env = merge(&merged_env, &task_file_env);

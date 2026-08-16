@@ -1,0 +1,21 @@
+version: 1
+
+cache:
+  provider: local
+
+env:
+  NODE_ENV: development
+  LOG_LEVEL: info
+
+packages:
+  - name: ui
+    root: "$WORKSPACE/package/ui"
+    env_file: "$WORKSPACE/.env"
+    tasks:
+      build:
+        cmd: echo $GLOBAL_ENV
+        outputs:
+          - dist/**
+        ignore:
+          - node_modules/**
+        env_file: ".env"
