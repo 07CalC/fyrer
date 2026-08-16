@@ -68,5 +68,9 @@
     "light": "/docs/images/fyrer-light.png",
     "dark": "/docs/images/fyrer-dark.png",
     "href": "https://fyrer.vinm.me"
+  },
+  "favicon": {
+    "light": "/images/fyrer-dark.png",
+    "dark": "/images/fyrer-light.png"
   }
 }
