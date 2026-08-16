@@ -332,7 +332,6 @@ impl Task {
         let inputs = self.resolve_inputs();
         for input in inputs {
             if input.is_file() {
-                dbg!("hashing input file: {:?}", &input);
                 hash_file(&mut hasher, &input)?;
             }
         }

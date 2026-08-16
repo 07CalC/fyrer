@@ -8,7 +8,7 @@ use tokio::{sync::broadcast::Sender, task::JoinSet};
 
 use crate::{
     cache::CacheProvider,
-    events::AppEvent,
+    events::{AppEvent, LogStream::Stderr},
     task::{ProcessResult, Task, TaskId, TaskMap, TaskStatus},
 };
 
@@ -163,9 +163,9 @@ impl Scheduler {
                     });
                 }
 
-                // the joinset itself panicked, which is unexpected, but we can log it and continue
+                // the joinset itself panicked, which is unexpected, so we propagate the panic to the caller
                 Err(e) => {
-                    eprintln!("process task panicked: {e}");
+                    unreachable!("JoinSet panicked: {:?}", e);
                 }
             }
         }
@@ -178,17 +178,30 @@ impl Scheduler {
         let cache_key = match task.cache_key(self.task_map.clone()) {
             Ok(key) => key,
             Err(e) => {
-                eprintln!("Failed to compute cache key for task {}: {}", task.id, e);
+                let _ = self.event_tx.send(AppEvent::TaskLog {
+                    task_id: task.id.clone(),
+                    stream: Stderr,
+                    line: format!("Failed to compute cache key: {}", e),
+                });
+                let _ = self.event_tx.send(AppEvent::NonFatalError {
+                    task_id: Some(task.id.clone()),
+                    error: format!("failed to compute cache key: {}", e),
+                });
                 return;
             }
         };
         let output_digest = match task.output_digest() {
             Ok(key) => key,
             Err(e) => {
-                eprintln!(
-                    "Failed to compute output digest for task {}: {}",
-                    task.id, e
-                );
+                let _ = self.event_tx.send(AppEvent::TaskLog {
+                    task_id: task.id.clone(),
+                    stream: Stderr,
+                    line: format!("Failed to compute output digest: {}", e),
+                });
+                let _ = self.event_tx.send(AppEvent::NonFatalError {
+                    task_id: Some(task.id.clone()),
+                    error: format!("failed to compute output digest: {}", e),
+                });
                 return;
             }
         };
@@ -205,7 +218,15 @@ impl Scheduler {
             .cache
             .save(&cache_key, &task.resolve_outputs(), metadata)
         {
-            eprintln!("Failed to save cache for task {}: {}", task.id, e);
+            let _ = self.event_tx.send(AppEvent::TaskLog {
+                task_id: task.id.clone(),
+                stream: Stderr,
+                line: format!("Failed to save cache: {}", e),
+            });
+            let _ = self.event_tx.send(AppEvent::NonFatalError {
+                task_id: Some(task.id.clone()),
+                error: format!("failed to save cache: {}", e),
+            });
         }
     }
 
@@ -232,9 +253,31 @@ impl Scheduler {
             // outputs are already in place and intact, nothing to do
             Ok(false) => true,
             // outputs are missing or corrupted, need to restore from cache
-            Ok(true) => self.cache.restore(&cache_key).unwrap_or(false),
+            Ok(true) => self.cache.restore(&cache_key).unwrap_or_else(|e| {
+                let _ = self.event_tx.send(AppEvent::TaskLog {
+                    task_id: task.id.clone(),
+                    stream: Stderr,
+                    line: format!("Failed to restore cache: {}", e),
+                });
+                let _ = self.event_tx.send(AppEvent::NonFatalError {
+                    task_id: Some(task.id.clone()),
+                    error: format!("failed to restore cache: {}", e),
+                });
+                false
+            }),
             // failed to check if hydration is needed, treat as cache miss
-            Err(_) => false,
+            Err(e) => {
+                let _ = self.event_tx.send(AppEvent::TaskLog {
+                    task_id: task.id.clone(),
+                    stream: Stderr,
+                    line: format!("Failed to check cache hydration: {}", e),
+                });
+                let _ = self.event_tx.send(AppEvent::NonFatalError {
+                    task_id: Some(task.id.clone()),
+                    error: format!("failed to check cache hydration: {}", e),
+                });
+                false
+            }
         }
     }
 

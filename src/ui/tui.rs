@@ -19,6 +19,7 @@ use crate::{
     events::{AppEvent, LogStream},
     executor::scheduler::RunSummary,
     task::TaskId,
+    utils::duration::DurationHumanReadable,
 };
 
 use super::Ui;
@@ -753,12 +754,7 @@ fn render_summary_popup(f: &mut ratatui::Frame, area: ratatui::layout::Rect, sum
         "Run finished with failures"
     };
 
-    let duration_secs = summary.duration.as_secs_f64();
-    let duration_str = if duration_secs >= 60.0 {
-        format!("{:.0}m {:.1}s", duration_secs / 60.0, duration_secs % 60.0)
-    } else {
-        format!("{duration_secs:.2}s")
-    };
+    let duration_str = summary.duration.to_human_readable();
 
     let lines = vec![
         Line::from(vec![
@@ -777,54 +773,64 @@ fn render_summary_popup(f: &mut ratatui::Frame, area: ratatui::layout::Rect, sum
         ]),
         Line::from(""),
         Line::from(vec![
-            Span::styled("  ✓ ", Style::default().fg(Color::Rgb(80, 220, 120))),
+            Span::styled("  + ", Style::default().fg(Color::Rgb(80, 220, 120))),
             Span::styled(
                 format!("Successful  {:>3}", summary.successful),
                 Style::default().fg(Color::White),
             ),
-            Span::styled("     ✗ ", Style::default().fg(Color::Rgb(230, 80, 80))),
+        ]),
+        Line::from(vec![
+            Span::styled("  x ", Style::default().fg(Color::Rgb(230, 80, 80))),
             Span::styled(
-                format!("Failed  {:>3}", summary.failed),
+                format!("Failed      {:>3}", summary.failed),
                 Style::default().fg(Color::White),
             ),
         ]),
         Line::from(vec![
-            Span::styled("  ⚡ ", Style::default().fg(Color::Rgb(180, 120, 255))),
+            Span::styled("  * ", Style::default().fg(Color::Rgb(180, 120, 255))),
             Span::styled(
                 format!("Cached      {:>3}", summary.cached),
                 Style::default().fg(Color::White),
             ),
-            Span::styled("     — ", Style::default().fg(Color::Rgb(100, 100, 100))),
+        ]),
+        Line::from(vec![
+            Span::styled("  - ", Style::default().fg(Color::Rgb(150, 150, 170))),
             Span::styled(
-                format!("Skipped {:>3}", summary.skipped),
+                format!("Skipped     {:>3}", summary.skipped),
                 Style::default().fg(Color::White),
             ),
         ]),
         Line::from(vec![
-            Span::styled("  ⏱ ", Style::default().fg(ACCENT)),
+            Span::styled("    ", Style::default()),
             Span::styled(
-                format!("Duration    {duration_str}"),
-                Style::default().fg(Color::White),
+                format!("Total       {:>3}", summary.total),
+                Style::default()
+                    .fg(Color::White)
+                    .add_modifier(Modifier::BOLD),
             ),
         ]),
         Line::from(""),
-        Line::from(vec![Span::styled(
-            "  ──────────────────────────────────────────────",
-            Style::default().fg(Color::Rgb(45, 45, 65)),
-        )]),
+        Line::from(vec![
+            Span::styled(
+                "  Duration    ",
+                Style::default().fg(Color::Rgb(150, 150, 170)),
+            ),
+            Span::styled(duration_str, Style::default().fg(ACCENT)),
+        ]),
         Line::from(""),
         Line::from(vec![
-            Span::styled("  ", Style::default()),
             Span::styled(
-                "[Enter]",
+                "  [Enter]",
                 Style::default()
                     .fg(Color::Rgb(80, 220, 120))
                     .add_modifier(Modifier::BOLD),
             ),
+            Span::styled(" logs    ", Style::default().fg(Color::Rgb(150, 150, 170))),
             Span::styled(
-                " browse logs  ",
-                Style::default().fg(Color::Rgb(150, 150, 170)),
+                "[j/k]",
+                Style::default().fg(ACCENT).add_modifier(Modifier::BOLD),
             ),
+            Span::styled(" tasks    ", Style::default().fg(Color::Rgb(150, 150, 170))),
             Span::styled(
                 "[q]",
                 Style::default()
@@ -832,17 +838,6 @@ fn render_summary_popup(f: &mut ratatui::Frame, area: ratatui::layout::Rect, sum
                     .add_modifier(Modifier::BOLD),
             ),
             Span::styled(" quit", Style::default().fg(Color::Rgb(150, 150, 170))),
-        ]),
-        Line::from(vec![
-            Span::styled("  ", Style::default()),
-            Span::styled(
-                "[j/k ↑↓]",
-                Style::default().fg(ACCENT).add_modifier(Modifier::BOLD),
-            ),
-            Span::styled(
-                " browse tasks",
-                Style::default().fg(Color::Rgb(150, 150, 170)),
-            ),
         ]),
     ];
 

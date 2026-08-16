@@ -1,3 +1,5 @@
+use anyhow::Result;
+use owo_colors::OwoColorize;
 use std::{
     collections::HashMap,
     sync::{
@@ -6,8 +8,6 @@ use std::{
     },
     time::Duration,
 };
-
-use anyhow::Result;
 use tokio::{
     sync::broadcast::{self, Sender},
     task::JoinHandle,
@@ -22,6 +22,7 @@ use crate::{
     config::{CacheConfig, FyrerConfig},
     events::{AppEvent, TaskCommand},
     executor::scheduler::Scheduler,
+    logs::error_collector::ErrorCollector,
     task::{TaskGraph, TaskId, TaskMap, TaskState},
     ui::Ui,
 };
@@ -95,6 +96,7 @@ impl Orchestrator {
 
         let stop = Arc::new(AtomicBool::new(false));
         let (input_handle, tick_handle) = self.start_input_capture(Arc::clone(&stop));
+        let mut error_collector = ErrorCollector::new();
 
         loop {
             tokio::select! {
@@ -123,6 +125,12 @@ impl Orchestrator {
                                 s.status = crate::task::TaskStatus::Failed;
                             }
                         }
+                        Ok(AppEvent::NonFatalError { task_id, error }) => {
+                            error_collector.push_error(task_id, error);
+                        }
+                        Ok(AppEvent::Warning{ task_id, message }) => {
+                            error_collector.push_warning(task_id, message);
+                        }
                         Ok(AppEvent::RunFinished(_)) => {}
                         Ok(_) => {}
                         Err(broadcast::error::RecvError::Lagged(_)) => {}
@@ -144,19 +152,55 @@ impl Orchestrator {
         match result {
             Ok(r) => {
                 println!();
-                println!("Run completed in {:.2?}", r.duration);
+                println!(
+                    "{} {}",
+                    "Run completed in".bold(),
+                    format!("{:.2?}", r.duration).dimmed()
+                );
                 println!();
-                println!("  Results");
-                println!("  ─────────────────────────");
-                println!("  ✓ Successful    {}", r.successful);
-                println!("  ✗ Failed        {}", r.failed);
-                println!("  ⚡ Cached       {}", r.cached);
-                println!("  ○ Skipped       {}", r.skipped);
-                println!();
-                println!("  Total           {}", r.total);
+
+                println!("  {}", "Results".bold());
+                println!("  {}", "─────────────────────────".dimmed());
+
+                println!(
+                    "  {} {:<12} {}",
+                    "+".green().bold(),
+                    "Successful",
+                    r.successful.to_string().green()
+                );
+
+                println!(
+                    "  {} {:<12} {}",
+                    "x".red().bold(),
+                    "Failed",
+                    r.failed.to_string().red()
+                );
+
+                println!(
+                    "  {} {:<12} {}",
+                    "*".cyan().bold(),
+                    "Cached",
+                    r.cached.to_string().cyan()
+                );
+
+                println!(
+                    "  {} {:<12} {}",
+                    "-".yellow().bold(),
+                    "Skipped",
+                    r.skipped.to_string().yellow()
+                );
+
+                println!("  {:<14} {}", "Total".bold(), r.total.to_string().bold());
+                if r.cached == r.total && r.total > 0 {
+                    println!();
+                    println!("  {}", "ALL CACHED".cyan().bold());
+                    println!("  {}", "FYRER FIRED.".cyan().bold());
+                    println!();
+                }
             }
             Err(_) => {}
         }
+        error_collector.finalize();
         Ok(())
     }
 
