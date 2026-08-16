@@ -1,0 +1,89 @@
+---
+title: "fyrer.yml Task Configuration: Complete Field Reference"
+sidebarTitle: "Tasks"
+description: "Full reference for task fields in fyrer.yml: cmd, depends_on, inputs, outputs, cache, persistent, watch, timeout, cwd, env, and env_file."
+---
+
+A task is a named command inside a package. Tasks declare what to run, what they depend on, what files they read and produce, and how they behave — cached, persistent, or watched. fyrer resolves dependencies between tasks across all packages, runs independent tasks concurrently, and streams every task's output with a colorized prefix.
+
+## Task fields
+
+<ParamField body="cmd" type="string" required>
+  The shell command to run. Executed via `sh -c` on Unix/macOS or `cmd /C` on Windows.
+</ParamField>
+
+<ParamField body="depends_on" type="string[]">
+  Task IDs this task must wait for. Use `package:task` for cross-package deps, or a bare `task` name for same-package deps.
+</ParamField>
+
+<ParamField body="inputs" type="string[]">
+  Glob patterns (relative to the package root) of files that define the task's cache key. Changes to these files invalidate the cache.
+</ParamField>
+
+<ParamField body="outputs" type="string[]">
+  Glob patterns of files the task produces. Archived on cache write; restored on cache hit.
+</ParamField>
+
+<ParamField body="ignore" type="string[]">
+  Glob patterns excluded from both `inputs` and `outputs`.
+</ParamField>
+
+<ParamField body="cache" type="boolean" default="false">
+  When `true`, a successful run is cached and skipped on future runs when inputs are unchanged. Cannot be combined with `persistent` or `watch`.
+</ParamField>
+
+<ParamField body="persistent" type="boolean" default="false">
+  Marks a long-running task (e.g., a dev server). The task runs until you quit fyrer. Cannot be combined with `cache`.
+</ParamField>
+
+<ParamField body="watch" type="boolean" default="false">
+  Marks a task that restarts when watched inputs change. Cannot be combined with `cache`. **Note:** file-watching is not yet implemented; this flag is reserved for a future release.
+</ParamField>
+
+<ParamField body="timeout" type="string">
+  Kill the task after this duration (e.g., `30s`, `2m`). Must be greater than zero.
+</ParamField>
+
+<ParamField body="cwd" type="string">
+  Working directory for the command, relative to the package root. Must exist inside the package root.
+</ParamField>
+
+<ParamField body="env" type="map<string, string>">
+  Per-task environment variables. Highest precedence of all env sources.
+</ParamField>
+
+<ParamField body="env_file" type="string">
+  Per-task `.env` file path, relative to the package root.
+</ParamField>
+
+## Full task example
+
+```yaml
+tasks:
+  build:
+    cmd: bun build src/index.ts --outdir dist
+    depends_on:
+      - ui:build
+    inputs:
+      - src/**
+      - package.json
+    outputs:
+      - dist/**
+    ignore:
+      - node_modules/**
+    cache: true
+    timeout: 5m
+    cwd: subdir
+    env:
+      NODE_ENV: production
+    env_file: .env.production
+```
+
+## Validation rules
+
+- **`cmd` must not be empty.**
+- **`timeout` must be greater than zero** if specified.
+- **`cwd` must be relative** and must exist inside the package root.
+- **`inputs`, `outputs`, and `ignore`** must be valid glob patterns.
+- **`cache` cannot be combined with `persistent` or `watch`** — a cached task must be finite and non-restarting.
+- **`env_file` must be relative** and must exist at the time fyrer starts.

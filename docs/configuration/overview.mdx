@@ -1,0 +1,60 @@
+---
+title: "fyrer.yml Configuration File: Complete Field Reference"
+sidebarTitle: "Overview"
+description: "Complete reference for the fyrer.yml config file — covers version, global env, cache settings, and the packages list that drives your monorepo."
+---
+
+fyrer reads a `fyrer.yml` file in the current directory (or the path passed to `--config`). The file declares the config format version, global environment variables, cache settings, and a list of packages with their tasks. fyrer validates the file at startup and resolves all paths relative to the directory that contains `fyrer.yml`.
+
+## Top-level structure
+
+```yaml fyrer.yml
+version: 1                # Required. Must be 1.
+cache:
+  provider: local         # Cache backend. Only "local" is available.
+env:                      # Variables available to all packages and tasks.
+  NODE_ENV: development
+packages:                 # List of packages in your monorepo.
+  - name: web
+    root: ./apps/web
+    tasks:
+      dev:
+        cmd: bun run dev
+        persistent: true
+```
+
+## Top-level fields
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `version` | integer | Yes | Config format version. Must be `1`. |
+| `cache` | object | No | Cache configuration. |
+| `cache.provider` | string | No | Cache backend. Only `"local"` supported. |
+| `env` | map | No | Environment variables for all packages. |
+| `packages` | array | Yes | List of package definitions. |
+
+## Where to place fyrer.yml
+
+Place `fyrer.yml` at the root of your monorepo — the directory that is the common ancestor of all your packages. Run `fyrer` from that same directory so that package `root` paths and task glob patterns resolve correctly. If you need to point at a different file, pass the `--config` flag:
+
+```bash
+fyrer --config path/to/fyrer.yml run
+```
+
+<Note>
+  fyrer validates the config at startup. Errors are reported with the package and field name so you can find and fix them quickly.
+</Note>
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Packages" icon="folder" href="/configuration/packages">
+    Configure package names, roots, and env files
+  </Card>
+  <Card title="Tasks" icon="list-check" href="/configuration/tasks">
+    Configure commands, caching, dependencies, and more
+  </Card>
+  <Card title="Environment" icon="key" href="/configuration/environment">
+    Environment variable precedence and .env files
+  </Card>
+</CardGroup>

@@ -1,0 +1,35 @@
+---
+title: "fyrer: Declarative Task Orchestration for Monorepos"
+sidebarTitle: "Introduction"
+description: "fyrer resolves monorepo task dependencies into a DAG, runs each level concurrently, caches builds by input hash, and streams colorized logs."
+---
+
+fyrer is a declarative, language-agnostic monorepo task orchestrator written in Rust. In a large monorepo — whether it spans TypeScript, Rust, Go, Python, or any other language — running tasks across dozens of packages in the right order, without redundant rebuilds and without losing output, is painful. fyrer solves this by reading a single `fyrer.yml` config, turning your task relationships into a directed acyclic graph (DAG), and executing each level of that graph concurrently so you get the fastest possible run every time.
+
+## What fyrer does
+
+- **Reads `fyrer.yml` and resolves a task dependency graph** — declare each package and its tasks; fyrer topologically sorts them and propagates failures so dependent tasks are cleanly skipped.
+- **Runs tasks at each graph level concurrently** — all tasks within the same DAG level execute in parallel, maximising CPU utilisation across your packages.
+- **Streams colorized, prefixed output per task** — every task's logs are prefixed with its package and task name, colorized for readability, and streamed live.
+- **Caches successful build tasks keyed by inputs** — tasks with `cache: true` are fingerprinted using a [blake3](https://github.com/BLAKE3-team/BLAKE3) hash of their command, environment, and all matched input files. A second run reports `⚡ Cached` and restores outputs instantly.
+- **Provides an interactive TUI and a plain CI-friendly mode** — by default `fyrer run` opens a full-screen terminal UI with a task list and scrollable log pane. Pass `-n` (`--no-tui`) for plain prefixed output that works cleanly in CI pipelines and pipes.
+
+## Who it's for
+
+fyrer is designed for developers who manage **polyglot monorepos** — repositories that combine multiple languages or runtimes such as TypeScript/Bun, Rust, Go, Python, and more — and who need a lightweight, zero-boilerplate tool to coordinate builds, tests, code-generation steps, and development servers across all of them. If you have ever written a `Makefile` or shell script just to sequence `cargo build` before `bun run dev`, fyrer is for you.
+
+<CardGroup cols={2}>
+  <Card title="Installation" icon="download" href="/installation">
+    Install fyrer via `cargo install` or build from source.
+  </Card>
+  <Card title="Quick Start" icon="rocket" href="/quickstart">
+    Run the bundled demo monorepo and learn the core commands in minutes.
+  </Card>
+</CardGroup>
+
+## Limitations
+
+Keep these known constraints in mind as you design your `fyrer.yml`:
+
+- **Persistent tasks block later graph levels.** Tasks within the same DAG level all start concurrently, but fyrer waits for an entire level to finish before advancing to the next. A `persistent: true` task (e.g. a dev server) never exits on its own, so any tasks that depend on it — or that share a later graph level — will never start. Keep long-running dev servers on the **leaves** of the dependency graph so they don't block other work.
+- **`watch` is not yet implemented.** The `watch` flag is part of the config schema and is recognised without error, but the underlying file-watcher that would trigger automatic task restarts is not yet wired up. Tasks marked `watch: true` will run once and not restart on file changes.

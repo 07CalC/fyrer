@@ -1,0 +1,54 @@
+---
+title: "fyrer Task Dependency Graph and Topological Ordering"
+sidebarTitle: "Dependency Graph"
+description: "Understand how fyrer resolves depends_on declarations into a DAG and schedules tasks in topological order, running concurrently where possible."
+---
+
+fyrer builds a directed acyclic graph (DAG) from your `depends_on` declarations and runs tasks in topological order — dependencies first, as concurrent as possible. You declare what must come before what; fyrer figures out the rest.
+
+## depends_on syntax
+
+Each entry in `depends_on` is either a **fully-qualified** `package:task` reference to a task in another package, or a **bare task name** that refers to a task in the same package.
+
+```yaml
+tasks:
+  dev:
+    cmd: bun run dev
+    depends_on:
+      - ui:build      # another package's task
+      - check         # same package's task
+```
+
+In this example, `dev` will not start until both `ui:build` (in the `ui` package) and `check` (in the same package as `dev`) have completed successfully.
+
+## Execution levels
+
+fyrer groups tasks into **levels** based on their position in the graph:
+
+- **Level 0** — tasks with no unmet dependencies (nothing in their `depends_on`, or all dependencies are already satisfied).
+- **Level 1** — tasks whose `depends_on` entries are all in level 0.
+- **Level N** — tasks whose `depends_on` entries are all covered by earlier levels.
+
+All tasks within a level run concurrently. fyrer waits for every task in a level to finish before advancing to the next. This gives you maximum parallelism while still guaranteeing correct ordering.
+
+## Visual example
+
+Consider a monorepo where `api` and `web` both depend on shared library builds:
+
+```
+Level 0 (concurrent):  ui:build   shared:build
+Level 1 (concurrent):  api:build  web:build
+Level 2:               web:dev    api:dev
+```
+
+`ui:build` and `shared:build` have no dependencies, so they start immediately and run in parallel. Once both finish, `api:build` and `web:build` unlock and run concurrently. Only after that level completes do `web:dev` and `api:dev` start.
+
+## Failure propagation
+
+If a task exits with a non-zero status, it is marked **failed**. All tasks that transitively depend on it are marked **skipped** — they are not executed at all. The final summary distinguishes between failed tasks (those that actually crashed) and skipped tasks (those that couldn't run because an upstream dependency failed).
+
+This means a single failure in a foundational task (such as a shared library build) surfaces immediately without wasting time attempting tasks that were never going to succeed.
+
+<Warning>
+  fyrer validates the entire dependency graph at startup before running any task. If a circular dependency is detected — for example, `api:build` depends on `web:build` and `web:build` depends on `api:build` — fyrer will report an error and exit without executing anything.
+</Warning>

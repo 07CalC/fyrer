@@ -1,0 +1,48 @@
+---
+title: "fyrer list — Show All Packages and Tasks in the Monorepo"
+sidebarTitle: "list"
+description: "fyrer list reads your fyrer.yml and prints every package and its tasks, showing the command, inputs, outputs, and flags for each task."
+---
+
+`fyrer list` reads your `fyrer.yml` and prints every package and its tasks, including the command, inputs, outputs, and flags for each task. Use it to get a quick overview of what's available in your monorepo.
+
+## Synopsis
+
+```bash
+fyrer [--config <path>] list
+```
+
+## Arguments
+
+<ParamField path="--config" type="string" default="fyrer.yml">
+  Path to the config file.
+</ParamField>
+
+## Example output
+
+```
+Package: ui
+  Task: build
+    Command: bun build src/index.ts --outdir dist
+    Inputs: ["src/**", "package.json"]
+    Outputs: ["dist/**"]
+    Ignore: ["node_modules/**"]
+    Cache: true
+
+Package: api
+  Task: build
+    Command: cargo build --release
+    Cache: true
+  Task: dev
+    Command: cargo run
+    Persistent: true
+```
+
+## Examples
+
+```bash
+fyrer list
+
+# With a custom config path
+fyrer --config path/to/fyrer.yml list
+```

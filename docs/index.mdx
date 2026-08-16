@@ -1,0 +1,72 @@
+---
+title: "fyrer: Fast, Declarative Monorepo Task Orchestrator"
+sidebarTitle: "Home"
+description: "fyrer orchestrates monorepo builds and dev servers — declarative YAML config, dependency resolution, parallel execution, and content-addressed caching."
+---
+
+Welcome to **fyrer** — a declarative, language-agnostic task orchestrator built for monorepos. Define your packages and tasks in a `fyrer.yml` config file at your repo root, and fyrer resolves the dependency graph, runs tasks concurrently at each level, and skips unchanged work using a content-addressed cache. Whether you're coordinating Rust services, TypeScript frontends, or Python tooling, fyrer keeps your build pipeline fast and your dev loop tight.
+
+<CardGroup cols={2}>
+  <Card title="Quick Start" icon="rocket" href="/quickstart">
+    Get fyrer running in your monorepo in minutes.
+  </Card>
+  <Card title="Installation" icon="download" href="/installation">
+    Install via cargo or build from source.
+  </Card>
+  <Card title="Configuration" icon="sliders" href="/configuration/overview">
+    Learn the fyrer.yml config format.
+  </Card>
+  <Card title="CLI Reference" icon="terminal" href="/cli/run">
+    Explore fyrer run, plan, and list commands.
+  </Card>
+</CardGroup>
+
+## Key Features
+
+<CardGroup cols={2}>
+  <Card title="Concurrent Execution" icon="bolt" href="/concepts/how-it-works">
+    Runs tasks at each dependency graph level in parallel, maximising throughput across your monorepo.
+  </Card>
+  <Card title="Build Caching" icon="database" href="/concepts/caching">
+    Content-addressed cache skips unchanged tasks with ⚡ Cached — only rebuild what actually changed.
+  </Card>
+  <Card title="Language Agnostic" icon="layer-group" href="/guides/multi-language">
+    Works with any language: Rust, Go, TypeScript, Python, and more — if it runs in a shell, fyrer can orchestrate it.
+  </Card>
+  <Card title="Interactive TUI" icon="desktop" href="/concepts/how-it-works">
+    Full-screen terminal UI with a per-task log viewer so you always know what's running and why it failed.
+  </Card>
+</CardGroup>
+
+## How It Works
+
+<Steps>
+  <Step title="Add fyrer.yml">
+    Create a `fyrer.yml` at your monorepo root listing your packages and their tasks.
+
+    ```yaml fyrer.yml
+    version: 1
+    packages:
+      - name: api
+        root: ./apps/api
+        tasks:
+          build:
+            cmd: cargo build --release
+            cache: true
+      - name: web
+        root: ./apps/web
+        tasks:
+          dev:
+            cmd: bun run dev
+            depends_on:
+              - api:build
+            persistent: true
+    ```
+  </Step>
+  <Step title="Declare Dependencies">
+    Use `depends_on` to wire task execution order. fyrer builds a dependency graph and automatically runs independent tasks in parallel.
+  </Step>
+  <Step title="Run">
+    Execute `fyrer run build` to orchestrate a full build, or `fyrer run dev` to spin up all dev servers — fyrer handles the rest.
+  </Step>
+</Steps>

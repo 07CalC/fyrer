@@ -1,0 +1,105 @@
+---
+title: "Configuring Packages in fyrer.yml: A Full Reference"
+sidebarTitle: "Packages"
+description: "Reference for all package configuration fields in fyrer.yml: name, root, env, env_file, and tasks — the building blocks of your monorepo."
+---
+
+Each entry in the `packages` list represents one directory of your monorepo. A package groups related tasks and gives them a shared name, root path, and environment. Tasks within the same package can reference each other by their bare name, while tasks in other packages are referenced as `package:task`.
+
+## Package fields
+
+<ParamField body="name" type="string" required>
+  Unique name for the package. Used in task specifiers like `web:dev` and as the prefix in log output.
+</ParamField>
+
+<ParamField body="root" type="string" required>
+  Relative path from the `fyrer.yml` directory to the package root. Must exist. Cannot be absolute.
+</ParamField>
+
+<ParamField body="env" type="map<string, string>">
+  Environment variables applied to all tasks in this package. Takes precedence over root-level `env`.
+</ParamField>
+
+<ParamField body="env_file" type="string">
+  Path to a `.env` file, relative to the package root. Loaded for all tasks in this package.
+</ParamField>
+
+<ParamField body="tasks" type="map<string, TaskConfig>">
+  Map of task name → task configuration. See the [Tasks reference](/configuration/tasks).
+</ParamField>
+
+## Example
+
+The following snippet is drawn from the [acme-corp example](https://github.com/07CalC/fyrer/tree/main/examples/acme-corp) and shows four packages across multiple languages:
+
+```yaml fyrer.yml
+packages:
+  # TypeScript / Bun — shared UI library
+  - name: ui
+    root: ./packages/ui
+    env:
+      NODE_ENV: production
+    env_file: .env
+    tasks:
+      build:
+        cmd: bun build src/index.ts --outdir dist
+        inputs:
+          - src/**
+          - package.json
+          - tsconfig.json
+        outputs:
+          - dist/**
+        ignore:
+          - node_modules/**
+        cache: true
+
+  # TypeScript / Bun — web application
+  - name: web
+    root: ./apps/web
+    env:
+      PORT: "3000"
+      API_URL: http://localhost:8080
+    env_file: .env
+    tasks:
+      dev:
+        cmd: bun --watch src/index.ts
+        depends_on:
+          - ui:build
+        persistent: true
+
+  # Rust / Cargo — API server
+  - name: api
+    root: ./apps/api
+    env_file: .env
+    tasks:
+      dev:
+        cmd: cargo run
+        depends_on:
+          - shared:build
+        persistent: true
+
+  # Go — background worker
+  - name: worker
+    root: ./apps/worker
+    env:
+      ADDR: ":9000"
+    tasks:
+      build:
+        cmd: go build -o bin/worker .
+        depends_on:
+          - core:build
+        outputs:
+          - bin/worker
+        cache: true
+```
+
+## Validation rules
+
+- **Package names must be unique** across the entire `packages` list.
+- **`root` must be a relative path** — absolute paths are rejected.
+- **`root` must exist** on disk at the time fyrer starts.
+- **`env_file` must be relative** and must exist on disk at the time fyrer starts.
+
+<Tip>
+  Use short, lowercase package names (e.g., `api`, `web`, `ui`) — they appear in log prefixes and task specifiers like `web:dev`.
+</Tip>

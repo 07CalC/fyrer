@@ -1,0 +1,103 @@
+---
+title: "Running Multiple Dev Servers Concurrently with fyrer"
+sidebarTitle: "Dev Servers"
+description: "Configure and run multiple persistent dev servers simultaneously in a monorepo with fyrer's unified TUI and dependency-aware task graph."
+---
+
+fyrer can run multiple dev servers simultaneously, streaming each server's logs in a unified TUI. This guide shows how to configure persistent tasks for your dev servers and manage their dependencies so everything starts in the right order.
+
+## What is a persistent task?
+
+Setting `persistent: true` on a task marks it as long-running. fyrer keeps it alive until you explicitly quit — unlike normal tasks, persistent tasks never exit on their own. This makes them the right choice for dev servers, watchers, and any other process you want running in the background while you work.
+
+```yaml
+tasks:
+  dev:
+    cmd: bun --watch src/index.ts
+    persistent: true   # keep alive until q / Ctrl+C
+    cache: false       # cache cannot be combined with persistent
+```
+
+## Basic dev server setup
+
+The example below shows a typical frontend + backend monorepo. `ui:build` is a normal cacheable task that must finish before `web:dev` starts; `api:dev` runs independently.
+
+```yaml fyrer.yml
+packages:
+  - name: ui
+    root: ./packages/ui
+    tasks:
+      build:
+        cmd: bun build src/index.ts --outdir dist
+        inputs:
+          - src/**
+        outputs:
+          - dist/**
+        cache: true
+
+  - name: web
+    root: ./apps/web
+    env:
+      PORT: "3000"
+    tasks:
+      dev:
+        cmd: bun --watch src/index.ts
+        depends_on:
+          - ui:build     # ui:build runs first, then web:dev starts
+        cache: false
+        persistent: true
+
+  - name: api
+    root: ./apps/api
+    tasks:
+      dev:
+        cmd: cargo run
+        cache: false
+        persistent: true
+```
+
+## Starting all dev servers
+
+Run the `dev` task across every package that defines one:
+
+```bash
+fyrer run dev
+```
+
+fyrer resolves the dependency graph, runs `ui:build` first, and then launches `web:dev` and `api:dev` concurrently once their prerequisites are satisfied.
+
+## Dependency ordering with persistent tasks
+
+fyrer executes the task graph level by level — all tasks at the same graph level run concurrently, and a level must complete before the next one starts. Because persistent tasks never exit, **they block all later graph levels**.
+
+This means:
+- If `web:dev` and `api:dev` have no dependencies between them, they occupy the same graph level and start concurrently. ✅
+- If any task lists a persistent task in its `depends_on`, that task will wait forever and never start. ❌
+
+**Keep dev servers as leaves of the dependency graph** — nothing should depend on them.
+
+<Warning>
+Do **not** add a `depends_on` entry that points to a persistent task. Because the persistent task never exits, any task waiting for it will never start and will block the entire run.
+</Warning>
+
+## TUI navigation
+
+While dev servers are running, fyrer's interactive TUI lets you inspect each one:
+
+| Key | Action |
+|-----|--------|
+| `q` or `Ctrl+C` | Quit fyrer and kill all spawned process groups |
+| `j` / `k` or `↑` / `↓` | Select the previous / next task |
+| `u` / `d` or `PageUp` / `PageDown` | Scroll the log pane |
+| `g` / `G` | Jump to top / tail (follow) the log |
+| Mouse wheel | Scroll the log |
+
+## Plain mode for scripts
+
+To run dev servers without the TUI — for example inside a terminal multiplexer or a script — pass the `-n` flag:
+
+```bash
+fyrer run dev -n
+```
+
+In plain mode each log line is prefixed with `[package:task]` and colorized by package, making it easy to tell servers apart in a shared terminal session.

@@ -1,0 +1,69 @@
+---
+title: "fyrer run — Execute Monorepo Tasks and Stream Logs"
+sidebarTitle: "run"
+description: "fyrer run executes tasks from your fyrer.yml, resolves the dependency graph, runs tasks concurrently, and streams output to a TUI or plain log."
+---
+
+`fyrer run` executes one or more tasks from your `fyrer.yml`, resolves the dependency graph, runs tasks concurrently at each level, and streams output to an interactive TUI or plain log mode.
+
+## Synopsis
+
+```bash
+fyrer [--config <path>] run [<task>] [-n]
+```
+
+## Arguments and flags
+
+<ParamField path="task" type="string">
+  Optional task specifier. Three forms:
+  - *(empty)* — run every task in every package
+  - `build` — run the `build` task in every package that has one
+  - `web:dev` — run exactly the `dev` task in the `web` package
+</ParamField>
+
+<ParamField path="-n, --no-tui" type="flag">
+  Print plain, prefixed, colorized log output instead of opening the full-screen TUI. Useful in CI environments and when piping output.
+</ParamField>
+
+<ParamField path="--config" type="string" default="fyrer.yml">
+  Path to the config file. Resolved relative to the current directory.
+</ParamField>
+
+## Examples
+
+```bash
+# Run all tasks in all packages
+fyrer run
+
+# Run the build task in every package that has one
+fyrer run build
+
+# Run a specific package's task
+fyrer run web:dev
+
+# Use a different config file
+fyrer --config config/fyrer.yml run build
+
+# Plain output for CI
+fyrer run build -n
+```
+
+## TUI controls
+
+| Key | Action |
+| --- | --- |
+| `q` / `Ctrl+C` | Quit (kills all spawned process groups) |
+| `j` / `k` or `↑` / `↓` | Select previous / next task |
+| `u` / `d` or `PageUp` / `PageDown` | Scroll the log pane |
+| `g` | Jump to top of log |
+| `G` | Tail (follow) log |
+| Mouse wheel | Scroll the log |
+| `Enter` | Browse task logs after run finishes |
+
+## Run summary
+
+When a run completes, a popup shows success / failure / cached / skipped counts and total duration.
+
+<Note>
+  Persistent tasks (dev servers) keep running until you quit. Press `q` or `Ctrl+C` to stop all tasks gracefully.
+</Note>

@@ -1,0 +1,58 @@
+---
+title: "fyrer plan — Preview Task Execution Order and Graph"
+sidebarTitle: "plan"
+description: "fyrer plan resolves the dependency graph and prints the execution order without running anything, so you can verify dependencies before a run."
+---
+
+`fyrer plan` resolves the task dependency graph and prints the execution order — without running anything. Use it to verify that dependencies are wired correctly before a run.
+
+## Synopsis
+
+```bash
+fyrer [--config <path>] plan [<task>]
+```
+
+## Arguments
+
+<ParamField path="task" type="string">
+  Optional task specifier. Same forms as `fyrer run`: empty (all tasks), bare task name, or `package:task`.
+</ParamField>
+
+<ParamField path="--config" type="string" default="fyrer.yml">
+  Path to the config file.
+</ParamField>
+
+## Example output
+
+`fyrer plan` prints the resolved execution graph grouped by level. Tasks at the same level have no dependencies on each other and will run concurrently:
+
+```
+Level 1 (parallel)
+  ui:build
+  api:build
+
+Level 2 (parallel)
+  web:build        (depends on: ui:build)
+  gateway:build    (depends on: api:build)
+
+Level 3 (parallel)
+  web:deploy       (depends on: web:build)
+  gateway:deploy   (depends on: gateway:build)
+```
+
+## Examples
+
+```bash
+# Preview the full execution plan
+fyrer plan
+
+# Preview the plan for just the build task
+fyrer plan build
+
+# Preview a specific task
+fyrer plan web:dev
+```
+
+<Tip>
+  Run `fyrer plan` in CI before `fyrer run` to catch dependency errors early.
+</Tip>

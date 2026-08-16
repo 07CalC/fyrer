@@ -1,0 +1,56 @@
+---
+title: "How fyrer Executes Tasks: Scheduling and Concurrency"
+sidebarTitle: "How It Works"
+description: "A complete guide to fyrer's execution model: config parsing, DAG resolution, level-based concurrency, caching, and failure propagation."
+---
+
+fyrer is a task runner, not a build system. It orchestrates commands you define, in the order their dependencies require, running as much as possible in parallel. It doesn't know anything about compilers or frameworks — it just reads your `fyrer.yml`, figures out the correct order, and runs each command with full log streaming.
+
+## Execution lifecycle
+
+<Steps>
+  <Step title="Parse config">
+    fyrer reads `fyrer.yml` from the current directory (or the path given to `--config`) and validates it: version check, unique package and task names, valid paths, valid glob patterns, and mutually exclusive flags like `cache` + `persistent`.
+  </Step>
+  <Step title="Resolve graph">
+    Every `depends_on` declaration is resolved into edges of a directed acyclic graph (DAG). Each node in the graph is a fully-qualified `package:task` identifier. fyrer validates that no cycles exist and reports an error at startup if one is found.
+  </Step>
+  <Step title="Level execution">
+    Tasks are grouped into execution levels. Tasks with no unmet dependencies form level 0 and run immediately. Tasks whose dependencies are all in level 0 form level 1, and so on. All tasks within a level run concurrently; fyrer waits for the entire level to finish before advancing to the next.
+  </Step>
+  <Step title="Cache check">
+    For tasks with `cache: true`, fyrer computes a blake3 hash of the task's ID, command, working directory, resolved environment, matched input file contents, and the cache keys of every dependency. If a matching cache entry exists, the task is skipped and reported as `⚡ Cached`. Declared outputs are restored from the cache archive before the skip.
+  </Step>
+  <Step title="Output streaming">
+    For tasks that are not cached, their stdout and stderr are streamed in real time as the command runs. In plain mode (`-n`), every line is prefixed with the `package:task` label and colorized so interleaved output from concurrent tasks remains easy to read. The default TUI mode routes logs into a per-task pane you can browse interactively.
+  </Step>
+  <Step title="Completion">
+    After all tasks have run, a summary is shown with counts for successful, failed, cached, and skipped tasks, plus the total wall-clock duration.
+  </Step>
+</Steps>
+
+## Concurrency model
+
+Tasks within the same graph level run in parallel via Tokio's async runtime. fyrer spawns each command as a child process and polls all of them concurrently. A level is considered complete only when every task in it has either succeeded, failed, or been skipped. Only then does fyrer advance to the next level.
+
+This model means you get maximum parallelism within each level without any task at a later level starting before its dependencies have finished.
+
+## Failure propagation
+
+If a task exits with a non-zero status, it is marked as failed. Any task that declares a (transitive) dependency on the failed task is **skipped** — not failed itself. This distinction matters in the summary: failed tasks are those that actually crashed; skipped tasks are those that couldn't run because something upstream went wrong.
+
+## Persistent tasks
+
+Tasks marked `persistent: true` are intended for long-running processes like development servers. Because they never exit on their own, they hold their graph level open indefinitely — which means any tasks scheduled at later levels will never start.
+
+**Keep persistent tasks on the leaves of your graph** (no other tasks should depend on them). A typical pattern is to have build tasks run at early levels, and then start all dev servers at the final level once everything is built.
+
+## Plain mode
+
+Pass `-n` / `--no-tui` to `fyrer run` to disable the interactive TUI and get prefixed, colorized log output instead:
+
+```bash
+fyrer run build -n
+```
+
+Plain mode is ideal for CI environments and log aggregators, where a full-screen TUI would produce garbled output. Each log line is prefixed with the originating `package:task` so the source is always clear even when multiple tasks are running at the same time.

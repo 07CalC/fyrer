@@ -1,0 +1,95 @@
+{
+  "projectType": "cli-tool",
+  "projectName": "fyrer",
+  "projectDescription": "A declarative, language-agnostic monorepo task orchestrator that runs builds and dev servers concurrently with dependency resolution and content-addressed caching.",
+  "theme": "aspen",
+  "primaryColor": "#E05D2A",
+  "lightColor": "#F7E4D8",
+  "darkColor": "#1C0F07",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Get Started",
+            "pages": [
+              "introduction",
+              "installation",
+              "quickstart"
+            ]
+          },
+          {
+            "group": "Core Concepts",
+            "pages": [
+              "concepts/how-it-works",
+              "concepts/packages-and-tasks",
+              "concepts/dependency-graph",
+              "concepts/caching"
+            ]
+          },
+          {
+            "group": "Configuration",
+            "pages": [
+              "configuration/overview",
+              "configuration/packages",
+              "configuration/tasks",
+              "configuration/environment"
+            ]
+          },
+          {
+            "group": "CLI Reference",
+            "pages": [
+              "cli/run",
+              "cli/plan",
+              "cli/list"
+            ]
+          },
+          {
+            "group": "Guides",
+            "pages": [
+              "guides/dev-servers",
+              "guides/ci-mode",
+              "guides/multi-language"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "Concurrent task execution with topological dependency ordering",
+    "Content-addressed local build cache with blake3 hashing and output restore",
+    "Language-agnostic: works with any build tool or runtime",
+    "Declarative YAML configuration with strict validation",
+    "Interactive full-screen TUI with per-task log viewer",
+    "Automatic .env file parsing at global, package, and task levels",
+    "Per-task timeout, working directory, and environment overrides",
+    "Graceful shutdown with SIGINT/SIGTERM handling"
+  ],
+  "publicApiSurface": [
+    "fyrer run [task] [-n]",
+    "fyrer plan [task]",
+    "fyrer list",
+    "fyrer --config <path>",
+    "fyrer.yml: version",
+    "fyrer.yml: cache.provider",
+    "fyrer.yml: env",
+    "fyrer.yml: packages[].name",
+    "fyrer.yml: packages[].root",
+    "fyrer.yml: packages[].env",
+    "fyrer.yml: packages[].env_file",
+    "fyrer.yml: packages[].tasks.<name>.cmd",
+    "fyrer.yml: packages[].tasks.<name>.depends_on",
+    "fyrer.yml: packages[].tasks.<name>.inputs",
+    "fyrer.yml: packages[].tasks.<name>.outputs",
+    "fyrer.yml: packages[].tasks.<name>.ignore",
+    "fyrer.yml: packages[].tasks.<name>.cache",
+    "fyrer.yml: packages[].tasks.<name>.persistent",
+    "fyrer.yml: packages[].tasks.<name>.watch",
+    "fyrer.yml: packages[].tasks.<name>.timeout",
+    "fyrer.yml: packages[].tasks.<name>.cwd",
+    "fyrer.yml: packages[].tasks.<name>.env",
+    "fyrer.yml: packages[].tasks.<name>.env_file"
+  ]
+}

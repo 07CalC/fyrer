@@ -1,0 +1,65 @@
+---
+title: "Packages and Tasks: The Core of fyrer Configuration"
+sidebarTitle: "Packages & Tasks"
+description: "Learn how fyrer's config is structured around packages (monorepo directories) and tasks (named commands), and how to reference them on the CLI."
+---
+
+fyrer's configuration is organized around two core concepts: **packages** — the subdirectories that make up your monorepo — and **tasks** — the named commands to run inside each package. Everything in `fyrer.yml` flows from this two-level structure.
+
+## Packages
+
+A package is a directory in your monorepo with a unique name and a `root` path. It acts as the scope for a group of related tasks, environment variables, and an optional `.env` file.
+
+Key rules:
+- Each package must have a `name` that is unique across the entire config.
+- `root` must be a relative path and must exist at the time fyrer is invoked.
+- Environment variables declared at the package level are inherited by every task in that package.
+- An optional `env_file` (relative to `root`) is parsed and merged into the environment before task-level variables are applied.
+
+Here is a minimal package declaration:
+
+```yaml
+packages:
+  - name: api
+    root: ./apps/api
+    env:
+      RUST_LOG: debug
+    env_file: .env
+    tasks:
+      build:
+        cmd: cargo build --release
+        cache: true
+```
+
+## Tasks
+
+A task is a named command inside a package — think `build`, `dev`, `lint`, or `test`. Tasks are defined as a map under the package's `tasks` key.
+
+Key rules:
+- `cmd` is required. It is run via `sh -c` on Unix or `cmd /C` on Windows, so any shell syntax is valid.
+- Task names must be unique within a package (the same name can appear in different packages).
+- Tasks can declare `inputs`, `outputs`, `depends_on`, `cache`, `persistent`, `watch`, `timeout`, `cwd`, and per-task `env` / `env_file`. Note: `watch` is reserved for a future release — the flag is accepted in config but automatic file-watching is not yet active.
+- Per-task environment variables take the highest precedence in the [environment resolution order](/configuration/environment).
+
+## Task specifiers
+
+When running `fyrer run` or `fyrer plan`, you tell fyrer which tasks to execute using a **task specifier**. Three forms are supported:
+
+| Specifier | Meaning |
+| --- | --- |
+| *(empty)* | Every task in every package |
+| `build` | The `build` task in every package that has one |
+| `web:dev` | Exactly the `dev` task in the `web` package |
+
+For example:
+
+```bash
+fyrer run              # run everything
+fyrer run build        # build all packages
+fyrer run web:dev      # start only the web dev server
+fyrer plan web:dev     # preview the execution plan without running
+```
+
+<Note>
+  Package names and task names cannot contain spaces. Use simple identifiers such as `api`, `web`, `shared-ui`, or `build` — anything you'd be comfortable using as a map key in YAML.
+</Note>

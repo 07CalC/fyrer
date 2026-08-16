@@ -1,0 +1,307 @@
+---
+title: "Orchestrating a Multi-Language Monorepo with fyrer"
+sidebarTitle: "Multi-Language"
+description: "Orchestrate Rust, Go, TypeScript, and Python projects in a single monorepo using fyrer's language-agnostic, declarative task configuration."
+---
+
+fyrer is language-agnostic — it runs any shell command, so it works equally well with Rust, Go, TypeScript, Python, or any other toolchain. This guide walks through a realistic multi-language monorepo configuration inspired by the [acme-corp example](https://github.com/07CalC/fyrer/tree/main/examples/acme-corp) in the fyrer repository.
+
+## Example monorepo structure
+
+```
+my-monorepo/
+├── fyrer.yml
+├── apps/
+│   ├── api/          # Rust (Cargo)
+│   ├── web/          # TypeScript (Bun)
+│   ├── worker/       # Go
+│   └── cli/          # Python
+└── packages/
+    ├── ui/           # TypeScript shared library
+    ├── shared/       # Rust shared library
+    └── core/         # Go shared library
+```
+
+Shared packages (`ui`, `shared`, `core`) are built first; the apps that depend on them are built after. fyrer's dependency graph handles the ordering automatically.
+
+## Complete fyrer.yml
+
+Below is the full configuration for the acme-corp example, annotated with comments explaining each package:
+
+```yaml fyrer.yml
+version: 1
+
+cache:
+  provider: local
+
+# Global env vars — inherited by every package and task
+env:
+  NODE_ENV: development
+  LOG_LEVEL: info
+
+packages:
+  # ───────────────────────────── TypeScript / Bun ─────────────────────────────
+
+  # Shared UI component library — built once, consumed by web
+  - name: ui
+    root: ./packages/ui
+    env:
+      NODE_ENV: production
+    env_file: .env
+    tasks:
+      build:
+        cmd: bun build src/index.ts --outdir dist
+        inputs:
+          - src/**
+          - package.json
+          - tsconfig.json
+        outputs:
+          - dist/**
+        ignore:
+          - node_modules/**
+        cache: true
+      watch:
+        cmd: bun build src/index.ts --outdir dist --watch
+        inputs:
+          - src/**
+        outputs:
+          - dist/**
+        ignore:
+          - node_modules/**
+        cache: false
+        watch: true     # reserved — auto-restart watcher not yet implemented
+        env:
+          NODE_ENV: development
+
+  # Frontend web app — depends on ui:build
+  - name: web
+    root: ./apps/web
+    env:
+      PORT: "3000"
+      API_URL: http://localhost:8080
+    env_file: .env
+    tasks:
+      dev:
+        cmd: bun --watch src/index.ts
+        depends_on:
+          - ui:build
+        inputs:
+          - src/**
+          - package.json
+        ignore:
+          - node_modules/**
+          - dist/**
+        cache: false
+        persistent: true
+        env:
+          NODE_ENV: development
+      build:
+        cmd: bun build src/index.ts --outdir dist
+        depends_on:
+          - ui:build
+        inputs:
+          - src/**
+          - package.json
+        outputs:
+          - dist/**
+        ignore:
+          - node_modules/**
+        cache: true
+        env:
+          NODE_ENV: production
+
+  # ────────────────────────────── Rust / Cargo ───────────────────────────────
+
+  # Shared Rust library — built first, consumed by api
+  - name: shared
+    root: ./packages/shared
+    tasks:
+      build:
+        cmd: cargo build --release
+        inputs:
+          - src/**
+          - Cargo.toml
+          - Cargo.lock
+        outputs:
+          - target/release/libshared.rlib
+        ignore:
+          - target/**
+        cache: true
+
+  # Rust HTTP API — depends on shared:build
+  - name: api
+    root: ./apps/api
+    env_file: .env
+    tasks:
+      build:
+        cmd: cargo build --release
+        depends_on:
+          - shared:build
+        inputs:
+          - src/**
+          - Cargo.toml
+          - Cargo.lock
+        outputs:
+          - target/release/api
+        ignore:
+          - target/**
+        cache: true
+      dev:
+        cmd: cargo run
+        depends_on:
+          - shared:build
+        inputs:
+          - src/**
+          - Cargo.toml
+        ignore:
+          - target/**
+        cache: false
+        persistent: true
+
+  # ──────────────────────────────── Go ──────────────────────────────────────
+
+  # Shared Go library — compiled as an archive
+  - name: core
+    root: ./packages/core
+    tasks:
+      build:
+        cmd: go build -buildmode=archive -o target/core.a .
+        inputs:
+          - "*.go"
+          - go.mod
+        outputs:
+          - target/core.a
+        cache: true
+
+  # Go background worker — depends on core:build
+  - name: worker
+    root: ./apps/worker
+    env:
+      ADDR: ":9000"
+    tasks:
+      build:
+        cmd: go build -o bin/worker .
+        depends_on:
+          - core:build
+        inputs:
+          - "*.go"
+          - go.mod
+        outputs:
+          - bin/worker
+        ignore:
+          - bin/**
+        cache: true
+      dev:
+        cmd: go run .
+        depends_on:
+          - core:build
+        inputs:
+          - "*.go"
+          - go.mod
+        ignore:
+          - bin/**
+        cache: false
+        persistent: true
+
+  # ──────────────────────────────── Python ──────────────────────────────────
+
+  # Python CLI — bundle, lint, docs generation, and a persistent serve task
+  - name: cli
+    root: ./apps/cli
+    env_file: .env
+    tasks:
+      bundle:
+        cmd: python3 cli.py bundle
+        inputs:
+          - cli.py
+          - .env
+        outputs:
+          - dist/**
+        ignore:
+          - dist/**
+          - __pycache__/**
+        cache: true
+      lint:
+        cmd: python3 cli.py lint
+        inputs:
+          - cli.py
+        outputs:
+          - dist/lint-report.txt
+        ignore:
+          - dist/**
+          - __pycache__/**
+        cache: true
+      docs:
+        cmd: python3 gen-docs.py
+        cwd: scripts
+        inputs:
+          - gen-docs.py
+        outputs:
+          - ../docs/**
+        ignore:
+          - ../docs/**
+          - __pycache__/**
+        cache: true
+      serve:
+        cmd: python3 cli.py serve
+        depends_on:
+          - cli:bundle
+        inputs:
+          - cli.py
+        ignore:
+          - dist/**
+        cache: false
+        persistent: true
+        env:
+          PORT: "8010"
+      timeout-demo:
+        cmd: python3 cli.py slow
+        timeout: 2s
+        inputs:
+          - cli.py
+        ignore:
+          - __pycache__/**
+        cache: false
+```
+
+<Note>
+The `watch: true` flag is part of the fyrer config schema and is recognized by `fyrer list` and `fyrer plan`, but the file-watcher that triggers automatic task restarts is not yet implemented. Tasks with `watch: true` are treated as plain persistent tasks at runtime — they will not restart automatically when input files change.
+</Note>
+
+## Running the whole stack
+
+```bash
+# Build everything (first run: compiles; subsequent runs: mostly cached)
+fyrer run build
+
+# Start all dev servers
+fyrer run dev
+
+# Preview what would run without executing anything
+fyrer plan build
+```
+
+On the first `fyrer run build`, all packages compile from scratch. On subsequent runs, only packages whose `inputs` have changed are rebuilt — the rest are restored from the local cache and reported as `⚡ Cached`.
+
+## Cross-language dependencies
+
+`depends_on` works across languages without any special configuration. In the example above:
+
+- `worker:build` (Go) depends on `core:build` (Go)
+- `api:build` (Rust) depends on `shared:build` (Rust)
+- `web:build` and `web:dev` (TypeScript) both depend on `ui:build` (TypeScript)
+- `cli:serve` (Python) depends on `cli:bundle` (Python)
+
+fyrer doesn't know or care what language a task uses — it resolves the dependency graph and runs each command in order. You can freely add cross-language dependencies the same way: just reference `package:task` in `depends_on`.
+
+## Per-package tool setup
+
+Each package uses its own toolchain (`bun`, `cargo`, `go`, `python3`). fyrer does **not** install tools — it assumes every required binary is already available on your `PATH` when `fyrer run` is executed.
+
+<Note>
+Install all required toolchains (Rust / Cargo, Go, Bun, Python 3, etc.) on your machine or CI runner before running fyrer. fyrer will fail with a `command not found` error for any package whose toolchain is missing.
+</Note>
+
+<Tip>
+Use `fyrer list` to verify that all packages and tasks are correctly detected after editing `fyrer.yml`. It's a fast, read-only check that reports every package name and its available tasks without executing anything.
+</Tip>

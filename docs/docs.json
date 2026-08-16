@@ -14,4 +14,55 @@
       "href": "https://github.com/07calc/fyrer"
     }
   },
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Get Started",
+            "pages": [
+              "introduction",
+              "installation",
+              "quickstart"
+            ]
+          },
+          {
+            "group": "Core Concepts",
+            "pages": [
+              "concepts/how-it-works",
+              "concepts/packages-and-tasks",
+              "concepts/dependency-graph",
+              "concepts/caching"
+            ]
+          },
+          {
+            "group": "Configuration",
+            "pages": [
+              "configuration/overview",
+              "configuration/packages",
+              "configuration/tasks",
+              "configuration/environment"
+            ]
+          },
+          {
+            "group": "CLI Reference",
+            "pages": [
+              "cli/run",
+              "cli/plan",
+              "cli/list"
+            ]
+          },
+          {
+            "group": "Guides",
+            "pages": [
+              "guides/dev-servers",
+              "guides/ci-mode",
+              "guides/multi-language"
+            ]
+          }
+        ]
+      }
+    ]
+  }
 }

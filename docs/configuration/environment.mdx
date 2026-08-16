@@ -1,0 +1,64 @@
+---
+title: "fyrer Environment Variables: Precedence and .env Files"
+sidebarTitle: "Environment"
+description: "How fyrer merges environment variables from fyrer.yml and .env files — precedence order, .env file format, and per-task overrides explained."
+---
+
+fyrer merges environment variables from multiple sources before running each task. Higher-precedence sources override lower ones, so you can set sensible defaults at the root level and override them precisely at the task level.
+
+## Precedence order
+
+From lowest to highest precedence:
+
+1. Root-level `env` (in `fyrer.yml`)
+2. Package `env_file` (loaded from the file, relative to the package root)
+3. Package-level `env`
+4. Task `env_file`
+5. Task-level `env`
+
+## Precedence table
+
+| Precedence | Source | Example |
+| --- | --- | --- |
+| 1 (lowest) | Root `env` in `fyrer.yml` | `NODE_ENV: development` |
+| 2 | Package `env_file` | `.env` file at the package root |
+| 3 | Package `env` | `PORT: "3000"` in package config |
+| 4 | Task `env_file` | `.env.local` for a specific task |
+| 5 (highest) | Task `env` | `PORT: "8080"` in task config |
+
+## .env file format
+
+fyrer's `.env` parser is intentionally simple:
+
+- Plain `KEY=VALUE` pairs, one per line.
+- Blank lines are ignored.
+- Lines starting with `#` are ignored (comments).
+- No shell variable expansion — values are taken literally.
+
+```bash .env
+NODE_ENV=production
+PORT=3000
+# This is a comment
+```
+
+## Per-task environment
+
+Task-level `env` and `env_file` are useful when the same logical task (e.g., `build`) needs different settings depending on the context — for example, a production build that requires a different `NODE_ENV` or API endpoint than the development build:
+
+```yaml
+tasks:
+  build:
+    cmd: bun build src/index.ts --outdir dist
+    env:
+      NODE_ENV: production
+    env_file: .env.production
+  dev:
+    cmd: bun --watch src/index.ts
+    env:
+      NODE_ENV: development
+    env_file: .env.local
+```
+
+<Tip>
+  Add secret `.env` files to `.gitignore`. fyrer loads them at runtime but never echoes their contents in logs.
+</Tip>

@@ -1,0 +1,174 @@
+---
+title: "Quick Start: Orchestrate Monorepo Tasks with fyrer"
+sidebarTitle: "Quick Start"
+description: "Install fyrer, define your monorepo tasks in a single YAML file, and run concurrent builds and dev servers with caching from scratch."
+---
+
+This guide walks you through installing fyrer, writing your first `fyrer.yml`, and running concurrent builds and dev servers across a multi-package monorepo — from zero to a fully cached, dependency-aware task graph in minutes.
+
+<Steps>
+
+### Install fyrer
+
+Install the `fyrer` binary via Cargo:
+
+```bash
+cargo install fyrer
+```
+
+Once installed, run `fyrer --version` to confirm it's on your `$PATH`.
+
+### Create your fyrer.yml
+
+Create a `fyrer.yml` file in your monorepo root. This single file describes every package, its tasks, dependencies, and caching behaviour. Here's a complete example with three packages — a shared UI library, a Rust API, and a Bun web frontend:
+
+```yaml fyrer.yml
+version: 1
+cache:
+  provider: local
+env:
+  NODE_ENV: development
+packages:
+  - name: ui
+    root: ./packages/ui
+    tasks:
+      build:
+        cmd: bun build src/index.ts --outdir dist
+        inputs:
+          - src/**
+        outputs:
+          - dist/**
+        ignore:
+          - node_modules/**
+        cache: true
+
+  - name: api
+    root: ./apps/api
+    env_file: .env
+    tasks:
+      build:
+        cmd: cargo build --release
+        inputs:
+          - src/**
+          - Cargo.toml
+        outputs:
+          - target/release/api
+        ignore:
+          - target/**
+        cache: true
+      dev:
+        cmd: cargo run
+        depends_on:
+          - api:build
+        cache: false
+        persistent: true
+
+  - name: web
+    root: ./apps/web
+    env:
+      PORT: "3000"
+    env_file: .env
+    tasks:
+      dev:
+        cmd: bun --watch src/index.ts
+        depends_on:
+          - ui:build
+        cache: false
+        persistent: true
+      build:
+        cmd: bun build src/index.ts --outdir dist
+        depends_on:
+          - ui:build
+        inputs:
+          - src/**
+        outputs:
+          - dist/**
+        ignore:
+          - node_modules/**
+        cache: true
+```
+
+A few things to notice in this config:
+
+- **`cache: true`** on every `build` task — fyrer hashes all `inputs` and skips the task on future runs when nothing has changed.
+- **`depends_on`** wires the graph: `api:dev` waits for `api:build`, and both `web:dev` and `web:build` wait for `ui:build` to finish first.
+- **`persistent: true`** marks long-running dev servers; fyrer keeps them alive until you quit.
+- **Root-level `env`** sets `NODE_ENV` for every task, while `env` and `env_file` on individual packages override or extend it as needed.
+
+### List available tasks
+
+Inspect every package and task fyrer can see:
+
+```bash
+fyrer list
+```
+
+Example output:
+
+```
+ui      build
+api     build
+api     dev
+web     dev
+web     build
+```
+
+### Preview the execution plan
+
+Before running anything, print the topological execution plan to verify that dependency ordering looks correct:
+
+```bash
+fyrer plan build
+```
+
+fyrer resolves the full dependency graph and prints each level in the order tasks will execute — without actually running a single command. This is especially useful when wiring up a new `depends_on` relationship and you want to confirm the order is right.
+
+### Run your build
+
+Execute the `build` task across every package:
+
+```bash
+fyrer run build
+```
+
+fyrer resolves the dependency graph, runs each level of the graph concurrently, and streams every task's output through the TUI. On the **second run**, if no input files have changed, each task is reported as `⚡ Cached` and completes instantly — no recompilation needed.
+
+### Start dev servers
+
+Boot all dev servers at once:
+
+```bash
+fyrer run dev
+```
+
+Tasks marked `persistent: true` stay alive and keep streaming logs until you press `q` or `Ctrl+C`. The TUI shows all running tasks on the left and the selected task's log output on the right — use the keyboard shortcuts below to navigate between them.
+
+</Steps>
+
+## TUI Controls
+
+When `fyrer run` opens the full-screen TUI, the following keys are available:
+
+| Key | Action |
+| --- | --- |
+| `q` / `Ctrl+C` | Quit (kills all spawned processes) |
+| `j` / `k` or `↑` / `↓` | Select previous / next task |
+| `u` / `d` or `PageUp` / `PageDown` | Scroll the log pane |
+| `g` / `G` | Jump to top / tail (follow) |
+| Mouse wheel | Scroll the log |
+| `Enter` | Browse task logs after run finishes |
+
+<Tip>
+  Pass the `-n` flag (`--no-tui`) to get plain, prefixed, colorized log output
+  instead of the interactive TUI — perfect for CI pipelines and log aggregators:
+
+  ```bash
+  fyrer run build -n
+  ```
+</Tip>
+
+<Note>
+  Now that you have fyrer running, explore the **Configuration reference** to
+  learn all available options — including per-task `env` and `env_file`
+  overrides, `timeout`, `cwd`, `watch` mode, and the full caching model.
+</Note>

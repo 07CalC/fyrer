@@ -1,0 +1,53 @@
+---
+title: "Installing fyrer: Cargo Install or Build from Source"
+sidebarTitle: "Installation"
+description: "Install fyrer as a single self-contained binary via cargo install from crates.io, or build the latest commit from source using the Rust toolchain."
+---
+
+fyrer is distributed as a single self-contained binary compiled from Rust — there are no runtimes, daemons, or additional dependencies to manage. There are two ways to get it onto your machine: install the latest published release directly from [crates.io](https://crates.io/crates/fyrer) using `cargo install`, or clone the repository and build from source.
+
+<Tabs>
+  <Tab title="cargo install">
+    **Prerequisites:** You must have the Rust toolchain installed. If you don't have it yet, install it from [rustup.rs](https://rustup.rs).
+
+    ```bash
+    cargo install fyrer
+    ```
+
+    <Note>
+      This fetches and compiles the latest released version of fyrer from crates.io and places the `fyrer` binary in your Cargo bin directory (usually `~/.cargo/bin`). Make sure that directory is on your `PATH`.
+    </Note>
+  </Tab>
+  <Tab title="Build from source">
+    **Prerequisites:** You must have the Rust toolchain installed. If you don't have it yet, install it from [rustup.rs](https://rustup.rs).
+
+    Clone the repository, build a release binary, and install it into your Cargo bin directory:
+
+    ```bash
+    git clone https://github.com/07calc/fyrer
+    cd fyrer
+    cargo build --release
+    cargo install --path .
+    ```
+
+    Building from source gives you the latest unreleased changes on the `main` branch.
+  </Tab>
+</Tabs>
+
+## Verify installation
+
+Confirm that `fyrer` is on your `PATH` and check the installed version:
+
+```bash
+fyrer --version
+```
+
+You should see output like `fyrer 0.3.0`. If the command is not found, ensure `~/.cargo/bin` is included in your `PATH` environment variable.
+
+<Note>
+  fyrer looks for `fyrer.yml` in the **current working directory** by default. Always run `fyrer` from the directory that contains your config file. If you need to point at a config in a different location, pass the `--config` flag:
+
+  ```bash
+  fyrer --config path/to/fyrer.yml run
+  ```
+</Note>
