@@ -16,7 +16,7 @@ fyrer run build -n
 
 Each line of output is prefixed with the originating package and task:
 
-```
+```text
 [ui:build]  $ bun build src/index.ts --outdir dist
 [ui:build]  Built 42 modules in 310ms
 [api:build] $ cargo build --release
@@ -66,7 +66,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions-rust-lang/setup-rust-toolchain@v1
       - name: Cache fyrer outputs
         uses: actions/cache@v3
         with:
@@ -74,15 +73,15 @@ jobs:
           key: fyrer-${{ hashFiles('fyrer.yml') }}-${{ github.sha }}
           restore-keys: fyrer-${{ hashFiles('fyrer.yml') }}-
       - name: Install fyrer
-        run: cargo install fyrer
+        run: curl -fsSL https://raw.githubusercontent.com/07calc/fyrer/main/install.sh | sh
       - name: Build
         run: fyrer run build -n
 ```
 
 <Tip>
-Use `fyrer plan build` before `fyrer run build -n` to print the topological execution plan without running any commands. This is helpful for debugging dependency ordering issues in CI without wasting build time.
+  Use `fyrer plan build` before `fyrer run build -n` to print the topological execution plan without running any commands. This is helpful for debugging dependency ordering issues in CI without wasting build time.
 </Tip>
 
 <Note>
-Do **not** run persistent tasks (dev servers) in CI. A task with `persistent: true` never exits, so your CI job will block indefinitely. Only include tasks that have a finite lifecycle — i.e. tasks without `persistent: true`.
+  Do **not** run persistent tasks (dev servers) in CI. A task with `persistent: true` never exits, so your CI job will block indefinitely. Only include tasks that have a finite lifecycle — i.e. tasks without `persistent: true`.
 </Note>
