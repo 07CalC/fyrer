@@ -1,4 +1,4 @@
-use std::{collections::HashMap, path::PathBuf, sync::Arc};
+use std::{collections::HashMap, sync::Arc};
 
 use anyhow::Result;
 
@@ -61,26 +61,28 @@ impl TaskMap {
 impl From<&FyrerConfig> for TaskMap {
     fn from(value: &FyrerConfig) -> Self {
         let mut tasks = HashMap::new();
+        let workspace_root = &value.workspace_root;
         for package in &value.packages {
+            let package_root = package
+                .root
+                .resolve_path(workspace_root)
+                .unwrap_or_else(|| package.root.clone());
             let package_env_file = package.env_file.as_ref().map(|file| {
-                if file.to_string_lossy().starts_with("$WORKSPACE") {
-                    file.resolve_path()
-                } else {
-                    package.root.resolve_path().join(file)
-                }
+                file.resolve_path(workspace_root)
+                    .unwrap_or_else(|| package_root.join(file))
             });
             for (task_name, task) in &package.tasks {
                 let task_id = TaskId::new(&package.name, task_name);
-                let cwd = package
-                    .root
-                    .resolve_path()
-                    .join(&task.cwd.as_ref().unwrap_or(&PathBuf::from(".")));
+                let cwd = task.cwd.as_ref().map_or_else(
+                    || package_root.clone(),
+                    |cwd| {
+                        cwd.resolve_path(workspace_root)
+                            .unwrap_or_else(|| package_root.join(cwd))
+                    },
+                );
                 let task_env_file = task.env_file.as_ref().map(|file| {
-                    if file.to_string_lossy().starts_with("$WORKSPACE") {
-                        file.resolve_path()
-                    } else {
-                        package.root.resolve_path().join(file)
-                    }
+                    file.resolve_path(workspace_root)
+                        .unwrap_or_else(|| package_root.join(file))
                 });
                 let env = merge_envs(
                     &value.env,

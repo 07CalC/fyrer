@@ -22,6 +22,7 @@ impl App {
         let config_path = &self.cli.config;
         let command = &self.cli.command;
         let config = FyrerConfig::new_from_path(config_path)?;
+        config.validate()?;
         match command {
             Command::Run { task, no_tui } => {
                 let mut orchestrator = Orchestrator::new(config);

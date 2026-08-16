@@ -1,16 +1,19 @@
-use std::path::PathBuf;
+use std::path::{Component, Path, PathBuf};
 
+/// resolves a `$WORKSPACE`-prefixed path against the workspace root.
+/// workspace root is where the config file is located. If the path does not start with
 pub trait ResolvePath {
-    fn resolve_path(&self) -> PathBuf;
+    fn resolve_path(&self, workspace_root: &Path) -> Option<PathBuf>;
 }
 
 impl ResolvePath for PathBuf {
-    fn resolve_path(&self) -> PathBuf {
-        let path = self.to_string_lossy();
-        let cwd_dir = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
-        match path.strip_prefix("$WORKSPACE") {
-            Some(stripped) => cwd_dir.join(stripped.trim_start_matches('/')),
-            None => self.clone(),
+    fn resolve_path(&self, workspace_root: &Path) -> Option<PathBuf> {
+        let mut components = self.components();
+        match components.next() {
+            Some(Component::Normal(first)) if first == "$WORKSPACE" => {
+                Some(workspace_root.join(components.as_path()))
+            }
+            _ => None,
         }
     }
 }
