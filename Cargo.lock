@@ -631,6 +631,7 @@ dependencies = [
  "glob",
  "humantime-serde",
  "libc",
+ "owo-colors",
  "ratatui",
  "serde",
  "serde_json",
@@ -1051,6 +1052,12 @@ checksum = "7bb71e1b3fa6ca1c61f383464aaf2bb0e2f8e772a1f01d486832464de363b951"
 dependencies = [
  "num-traits",
 ]
+
+[[package]]
+name = "owo-colors"
+version = "4.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d211803b9b6b570f68772237e415a029d5a50c65d382910b879fb19d3271f94d"
 
 [[package]]
 name = "palette"

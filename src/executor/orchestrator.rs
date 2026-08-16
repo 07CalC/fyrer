@@ -1,3 +1,5 @@
+use anyhow::Result;
+use owo_colors::OwoColorize;
 use std::{
     collections::HashMap,
     sync::{
@@ -6,8 +8,6 @@ use std::{
     },
     time::Duration,
 };
-
-use anyhow::Result;
 use tokio::{
     sync::broadcast::{self, Sender},
     task::JoinHandle,
@@ -149,23 +149,58 @@ impl Orchestrator {
         let _ = input_handle.await;
         let _ = tick_handle.await;
         let result = scheduler_handle.await;
-        error_collector.finalize();
         match result {
             Ok(r) => {
                 println!();
-                println!("Run completed in {:.2?}", r.duration);
+                println!(
+                    "{} {}",
+                    "Run completed in".bold(),
+                    format!("{:.2?}", r.duration).dimmed()
+                );
                 println!();
-                println!("  Results");
-                println!("  ─────────────────────────");
-                println!("  ✓ Successful    {}", r.successful);
-                println!("  ✗ Failed        {}", r.failed);
-                println!("  ⚡ Cached       {}", r.cached);
-                println!("  ○ Skipped       {}", r.skipped);
-                println!();
-                println!("  Total           {}", r.total);
+
+                println!("  {}", "Results".bold());
+                println!("  {}", "─────────────────────────".dimmed());
+
+                println!(
+                    "  {} {:<12} {}",
+                    "+".green().bold(),
+                    "Successful",
+                    r.successful.to_string().green()
+                );
+
+                println!(
+                    "  {} {:<12} {}",
+                    "x".red().bold(),
+                    "Failed",
+                    r.failed.to_string().red()
+                );
+
+                println!(
+                    "  {} {:<12} {}",
+                    "*".cyan().bold(),
+                    "Cached",
+                    r.cached.to_string().cyan()
+                );
+
+                println!(
+                    "  {} {:<12} {}",
+                    "-".yellow().bold(),
+                    "Skipped",
+                    r.skipped.to_string().yellow()
+                );
+
+                println!("  {:<14} {}", "Total".bold(), r.total.to_string().bold());
+                if r.cached == r.total && r.total > 0 {
+                    println!();
+                    println!("  {}", "ALL CACHED".cyan().bold());
+                    println!("  {}", "FYRER FIRED.".cyan().bold());
+                    println!();
+                }
             }
             Err(_) => {}
         }
+        error_collector.finalize();
         Ok(())
     }
 

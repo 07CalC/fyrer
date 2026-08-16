@@ -1,4 +1,5 @@
 use crate::task::TaskId;
+use owo_colors::OwoColorize;
 
 pub enum Diagnostics {
     Error {
@@ -27,6 +28,7 @@ impl ErrorCollector {
         self.errors.push(Diagnostics::Warning { task_id, message });
     }
 
+    #[allow(dead_code)]
     fn push(&mut self, diagnostic: Diagnostics) {
         self.errors.push(diagnostic);
     }
@@ -34,25 +36,70 @@ impl ErrorCollector {
         &self.errors
     }
 
-    pub fn finalize(&mut self) {
-        println!("Following errors and warnings were collected during execution:");
+    pub fn finalize(&self) {
+        if self.errors.is_empty() {
+            return;
+        }
+
+        let mut error_count = 0;
+        let mut warning_count = 0;
+
+        println!();
+        println!("  {}", "Diagnostics".bold());
+        println!("  {}", "─────────────────────────".dimmed());
+
         for diagnostic in &self.errors {
             match diagnostic {
                 Diagnostics::Error { task_id, error } => {
+                    error_count += 1;
+
                     if let Some(task_id) = task_id {
-                        eprintln!("Error in task {}: {}", task_id, error);
+                        eprintln!("  {} {}", "x".red().bold(), task_id.bold());
+                        eprintln!("    {}", error);
                     } else {
-                        eprintln!("Error: {}", error);
+                        eprintln!("  {} {}", "x".red().bold(), error);
                     }
+
+                    eprintln!();
                 }
+
                 Diagnostics::Warning { task_id, message } => {
+                    warning_count += 1;
+
                     if let Some(task_id) = task_id {
-                        eprintln!("Warning in task {}: {}", task_id, message);
+                        eprintln!("  {} {}", "!".yellow().bold(), task_id.bold());
+                        eprintln!("    {}", message);
                     } else {
-                        eprintln!("Warning: {}", message);
+                        eprintln!("  {} {}", "!".yellow().bold(), message);
                     }
+
+                    eprintln!();
                 }
             }
         }
+
+        let mut summary = Vec::new();
+
+        if error_count > 0 {
+            summary.push(format!(
+                "{} {}",
+                error_count,
+                if error_count == 1 { "error" } else { "errors" }
+            ));
+        }
+
+        if warning_count > 0 {
+            summary.push(format!(
+                "{} {}",
+                warning_count,
+                if warning_count == 1 {
+                    "warning"
+                } else {
+                    "warnings"
+                }
+            ));
+        }
+
+        println!("  {}", summary.join(" · ").dimmed());
     }
 }
