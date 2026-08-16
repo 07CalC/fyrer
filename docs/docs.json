@@ -1,0 +1,17 @@
+{
+  "$schema": "https://mintlify.com/docs.json",
+  "name": "fyrer",
+  "theme": "aspen",
+  "colors": {
+    "primary": "#E05D2A",
+    "light": "#F7E4D8",
+    "dark": "#1C0F07"
+  },
+  "favicon": "/favicon.svg",
+  "navbar": {
+    "primary": {
+      "type": "github",
+      "href": "https://github.com/07calc/fyrer"
+    }
+  },
+}
