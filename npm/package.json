@@ -1,0 +1,41 @@
+{
+  "name": "fyrer",
+  "version": "0.3.0",
+  "description": "A fast, declarative monorepo task runner",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/07calc/fyrer.git"
+  },
+  "homepage": "https://github.com/07calc/fyrer",
+  "bugs": {
+    "url": "https://github.com/07calc/fyrer/issues"
+  },
+  "bin": {
+    "fyrer": "bin/fyrer.js"
+  },
+  "files": [
+    "bin",
+    "scripts",
+    "LICENSE",
+    "README.md"
+  ],
+  "scripts": {
+    "postinstall": "node scripts/install.js"
+  },
+  "engines": {
+    "node": ">=14"
+  },
+  "os": [
+    "darwin",
+    "linux",
+    "win32"
+  ],
+  "cpu": [
+    "x64",
+    "arm64"
+  ],
+  "publishConfig": {
+    "access": "public"
+  }
+}

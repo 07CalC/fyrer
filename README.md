@@ -36,6 +36,15 @@ Installs `fyrer.exe` to `$HOME\.local\bin` (override with `-InstallDir`).
 cargo install fyrer
 ```
 
+### Install using npm
+
+```bash
+npm install --global fyrer
+```
+
+The npm package downloads and verifies the native binary for Linux, macOS, or
+Windows on x64 or ARM64 during installation.
+
 ### Build from source
 
 ```bash
