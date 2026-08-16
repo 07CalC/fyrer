@@ -8,7 +8,7 @@ use tokio::{sync::broadcast::Sender, task::JoinSet};
 
 use crate::{
     cache::CacheProvider,
-    events::AppEvent,
+    events::{AppEvent, LogStream::Stderr},
     task::{ProcessResult, Task, TaskId, TaskMap, TaskStatus},
 };
 
@@ -163,9 +163,9 @@ impl Scheduler {
                     });
                 }
 
-                // the joinset itself panicked, which is unexpected, but we can log it and continue
+                // the joinset itself panicked, which is unexpected, so we propagate the panic to the caller
                 Err(e) => {
-                    eprintln!("process task panicked: {e}");
+                    unreachable!("JoinSet panicked: {:?}", e);
                 }
             }
         }
@@ -178,17 +178,27 @@ impl Scheduler {
         let cache_key = match task.cache_key(self.task_map.clone()) {
             Ok(key) => key,
             Err(e) => {
-                eprintln!("Failed to compute cache key for task {}: {}", task.id, e);
+                let _ = self.event_tx.send(AppEvent::TaskLog {
+                    task_id: task.id.clone(),
+                    stream: Stderr,
+                    line: format!("Failed to compute cache key: {}", e),
+                });
+                // eprintln!("Failed to compute cache key for task {}: {}", task.id, e);
                 return;
             }
         };
         let output_digest = match task.output_digest() {
             Ok(key) => key,
             Err(e) => {
-                eprintln!(
-                    "Failed to compute output digest for task {}: {}",
-                    task.id, e
-                );
+                let _ = self.event_tx.send(AppEvent::TaskLog {
+                    task_id: task.id.clone(),
+                    stream: Stderr,
+                    line: format!("Failed to compute output digest: {}", e),
+                });
+                // eprintln!(
+                //     "Failed to compute output digest for task {}: {}",
+                //     task.id, e
+                // );
                 return;
             }
         };
@@ -205,7 +215,12 @@ impl Scheduler {
             .cache
             .save(&cache_key, &task.resolve_outputs(), metadata)
         {
-            eprintln!("Failed to save cache for task {}: {}", task.id, e);
+            let _ = self.event_tx.send(AppEvent::TaskLog {
+                task_id: task.id.clone(),
+                stream: Stderr,
+                line: format!("Failed to save cache: {}", e),
+            });
+            // eprintln!("Failed to save cache for task {}: {}", task.id, e);
         }
     }
 
