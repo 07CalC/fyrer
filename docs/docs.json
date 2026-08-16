@@ -7,10 +7,6 @@
     "light": "#F7E4D8",
     "dark": "#1C0F07"
   },
-  "favicon": {
-    "light": "/images/ChatGPT_Image_Aug_16__2026__04_19_16_PM-removebg-preview.png",
-    "dark": "/images/ChatGPT_Image_Aug_16__2026__04_19_16_PM-removebg-preview.png"
-  },
   "navbar": {
     "primary": {
       "type": "github",
@@ -69,8 +65,8 @@
     ]
   },
   "logo": {
-    "light": "/images/ChatGPT_Image_Aug_16__2026__04_19_16_PM-removebg-preview.png",
-    "dark": "/docs/images/ChatGPT_Image_Aug_16__2026__04_19_16_PM-removebg-preview.png",
+    "light": "/docs/images/fyrer-light.png",
+    "dark": "/docs/images/fyrer-dark.png",
     "href": "https://fyrer.vinm.me"
   }
 }
