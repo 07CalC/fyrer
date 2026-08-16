@@ -11,6 +11,25 @@ cached builds are skipped when their inputs haven't changed.
 
 ## Installation
 
+### Install script (Unix)
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/07calc/fyrer/main/install.sh | sh
+```
+
+The script downloads the prebuilt binary for your OS/architecture from the
+latest GitHub release, verifies its SHA-256 checksum, and installs it to
+`~/.local/bin` (override with `FYRER_INSTALL_DIR`, or pin a version with
+`sh install.sh v0.3.0`).
+
+### Install script (Windows, PowerShell)
+
+```powershell
+powershell -ExecutionPolicy Bypass -c "irm https://raw.githubusercontent.com/07calc/fyrer/main/install.ps1 | iex"
+```
+
+Installs `fyrer.exe` to `$HOME\.local\bin` (override with `-InstallDir`).
+
 ### Install using cargo
 
 ```bash
