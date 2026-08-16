@@ -1,57 +1,202 @@
-# Install fyrer from GitHub Releases.
-#
-# Usage:
-#   powershell -ExecutionPolicy Bypass -c "irm https://raw.githubusercontent.com/07calc/fyrer/main/install.ps1 | iex"
-#   powershell -File install.ps1 -Version v0.3.0
-#   powershell -File install.ps1 -InstallDir "C:\tools\bin"
-
-param(
-  [string]$Version = "",
-  [string]$InstallDir = ""
-)
-
 $ErrorActionPreference = "Stop"
+
 $Repo = "07calc/fyrer"
 
-if ([string]::IsNullOrEmpty($InstallDir)) {
-  $InstallDir = Join-Path $HOME ".local\bin"
+
+function Info($Message) {
+    Write-Host "  " -NoNewline
+    Write-Host "→" -ForegroundColor Cyan -NoNewline
+    Write-Host " $Message"
 }
 
-switch ($env:PROCESSOR_ARCHITECTURE) {
-  "AMD64" { $Target = "x86_64-pc-windows-msvc" }
-  "ARM64" { $Target = "aarch64-pc-windows-msvc" }
-  default { Write-Error "unsupported architecture: $env:PROCESSOR_ARCHITECTURE"; exit 1 }
+function Success($Message) {
+    Write-Host "  " -NoNewline
+    Write-Host "✓" -ForegroundColor Green -NoNewline
+    Write-Host " $Message"
 }
 
-if ([string]::IsNullOrEmpty($Version)) {
-  $release = Invoke-RestMethod "https://api.github.com/repos/$Repo/releases/latest"
-  $Version = $release.tag_name
+function Warn($Message) {
+    Write-Host "  " -NoNewline
+    Write-Host "!" -ForegroundColor Yellow -NoNewline
+    Write-Host " $Message"
 }
 
-$Asset = "fyrer-$Target.zip"
-$Base = "https://github.com/$Repo/releases/download/$Version"
+function Fail($Message) {
+    Write-Host "  " -NoNewline
+    Write-Host "✗" -ForegroundColor Red -NoNewline
+    Write-Host " $Message"
+    exit 1
+}
 
-$tmp = Join-Path $env:TEMP "fyrer-install-$PID"
-New-Item -ItemType Directory -Force -Path $tmp | Out-Null
+Write-Host ""
+Write-Host "  Fyrer Installer" -ForegroundColor White
+Write-Host "  Fast monorepo task runner" -ForegroundColor DarkGray
+Write-Host ""
+
+
+$Architecture = [System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture
+
+switch ($Architecture) {
+    "X64" {
+        $Target = "x86_64-pc-windows-msvc"
+        $Arch = "x86_64"
+    }
+
+    "Arm64" {
+        $Target = "aarch64-pc-windows-msvc"
+        $Arch = "aarch64"
+    }
+
+    default {
+        Fail "Unsupported architecture: $Architecture"
+    }
+}
+
+Info "Detected Windows $Arch"
+Info "Target: $Target"
+
+
+$Version = $env:FYRER_VERSION
+
+if (-not $Version) {
+    Info "Finding latest release..."
+
+    $Release = Invoke-RestMethod `
+        -Uri "https://api.github.com/repos/$Repo/releases/latest"
+
+    $Version = $Release.tag_name
+}
+
+if (-not $Version) {
+    Fail "Could not determine release version"
+}
+
+Success "Version $Version"
+
+$BaseUrl = $env:FYRER_BASE_URL
+
+if (-not $BaseUrl) {
+    $BaseUrl = "https://github.com/$Repo/releases/download/$Version"
+}
+
+$Asset = "fyrer-$Target.exe"
+$Checksum = "$Asset.sha256"
+
+
+$TempDir = Join-Path $env:TEMP "fyrer-install-$([Guid]::NewGuid())"
+
+New-Item `
+    -ItemType Directory `
+    -Path $TempDir `
+    -Force | Out-Null
 
 try {
-  $zip = Join-Path $tmp $Asset
-  Write-Host "downloading $Base/$Asset"
-  Invoke-WebRequest -Uri "$Base/$Asset" -OutFile $zip
 
-  $expected = ((Invoke-WebRequest -Uri "$Base/fyrer-$Target.sha256").Content -split "\s+")[0]
-  $actual = (Get-FileHash -Algorithm SHA256 -Path $zip).Hash.ToLower()
-  if ($actual -ne $expected.ToLower()) {
-    throw "checksum mismatch: expected $expected, got $actual"
-  }
+    $BinaryPath = Join-Path $TempDir $Asset
+    $ChecksumPath = Join-Path $TempDir $Checksum
 
-  Expand-Archive -Path $zip -DestinationPath $tmp -Force
 
-  New-Item -ItemType Directory -Force -Path $InstallDir | Out-Null
-  Copy-Item -Path (Join-Path $tmp "fyrer.exe") -Destination (Join-Path $InstallDir "fyrer.exe") -Force
+    Info "Downloading Fyrer..."
 
-  Write-Host "installed fyrer $Version to $InstallDir"
-  Write-Host "ensure $InstallDir is on your PATH"
-} finally {
-  Remove-Item -Recurse -Force $tmp -ErrorAction SilentlyContinue
+    try {
+        Invoke-WebRequest `
+            -Uri "$BaseUrl/$Asset" `
+            -OutFile $BinaryPath `
+            -UseBasicParsing
+    }
+    catch {
+        Fail "Failed to download $Asset"
+    }
+
+
+    Info "Verifying checksum..."
+
+    try {
+        Invoke-WebRequest `
+            -Uri "$BaseUrl/$Checksum" `
+            -OutFile $ChecksumPath `
+            -UseBasicParsing
+
+        $Expected = (Get-Content $ChecksumPath -Raw).Trim().Split(" ")[0]
+
+        $Actual = (Get-FileHash `
+            -Path $BinaryPath `
+            -Algorithm SHA256).Hash
+
+        if ($Expected.ToUpper() -ne $Actual.ToUpper()) {
+            Fail "Checksum verification failed"
+        }
+
+        Success "Checksum verified"
+    }
+    catch {
+        Warn "No checksum available for this release"
+    }
+
+
+    $InstallDir = $env:FYRER_INSTALL_DIR
+
+    if (-not $InstallDir) {
+        $InstallDir = Join-Path $env:LOCALAPPDATA "fyrer\bin"
+    }
+
+    Info "Installing to $InstallDir..."
+
+    New-Item `
+        -ItemType Directory `
+        -Path $InstallDir `
+        -Force | Out-Null
+
+    Copy-Item `
+        -Path $BinaryPath `
+        -Destination (Join-Path $InstallDir "fyrer.exe") `
+        -Force
+
+    Success "Installed Fyrer $Version"
+
+
+    $UserPath = [Environment]::GetEnvironmentVariable(
+        "Path",
+        "User"
+    )
+
+    $PathEntries = $UserPath -split ";" | Where-Object {
+        $_ -ne ""
+    }
+
+    if ($PathEntries -notcontains $InstallDir) {
+
+        Info "Adding Fyrer to your PATH..."
+
+        $NewPath = ($PathEntries + $InstallDir) -join ";"
+
+        [Environment]::SetEnvironmentVariable(
+            "Path",
+            $NewPath,
+            "User"
+        )
+
+        Success "Added Fyrer to PATH"
+
+        Warn "Restart your terminal for the PATH change to take effect."
+    }
+    else {
+        Success "Fyrer is already on PATH"
+    }
+
 }
+finally {
+    Remove-Item `
+        -Path $TempDir `
+        -Recurse `
+        -Force `
+        -ErrorAction SilentlyContinue
+}
+
+Write-Host ""
+Write-Host "  Fyrer is ready!" -ForegroundColor Green
+Write-Host ""
+Write-Host "  Run " -NoNewline
+Write-Host "fyrer --help" -ForegroundColor White -NoNewline
+Write-Host " to get started."
+Write-Host ""
