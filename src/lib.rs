@@ -4,6 +4,7 @@ pub mod cli;
 pub mod config;
 pub mod error;
 pub mod events;
+pub mod process;
 pub mod executor;
 pub mod logs;
 pub mod task;
