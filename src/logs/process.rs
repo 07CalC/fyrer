@@ -5,4 +5,5 @@ pub enum ProcessLog {
     Stdout { task_id: TaskId, data: Vec<u8> },
     Stderr { task_id: TaskId, data: Vec<u8> },
     System { task_id: TaskId, data: Vec<u8> },
+    Exit { task_id: TaskId, exit_code: i32 },
 }

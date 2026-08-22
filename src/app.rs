@@ -4,8 +4,8 @@ use clap::Parser;
 use crate::{
     cli::{Cli, Command},
     config::FyrerConfig,
+    engine::FyrerEngine,
     executor::orchestrator::Orchestrator,
-    ui::{plain::PlainUi, tui::Tui},
 };
 
 pub struct App {
@@ -24,15 +24,9 @@ impl App {
         let config = FyrerConfig::new_from_path(config_path)?;
         config.validate()?;
         match command {
-            Command::Run { task, no_tui } => {
-                let mut orchestrator = Orchestrator::new(config);
-                if *no_tui {
-                    let ui = PlainUi::default();
-                    orchestrator.run(task.as_deref(), ui).await?;
-                } else {
-                    let ui = Tui::new();
-                    orchestrator.run(task.as_deref(), ui).await?;
-                }
+            Command::Run { task, no_tui: _ } => {
+                let mut engine = FyrerEngine::new(config)?;
+                engine.start(task.as_deref()).await?;
             }
             Command::Plan { task } => {
                 let mut orchestrator = Orchestrator::new(config);

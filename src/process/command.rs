@@ -1,10 +1,8 @@
 use std::{
     collections::BTreeMap,
     ffi::{OsStr, OsString},
-    path::PathBuf,
+    path::{Path, PathBuf},
 };
-
-use crate::task::{self, Task};
 
 #[derive(Debug, Clone)]
 pub struct ProcessCommand {
@@ -36,7 +34,7 @@ impl ProcessCommand {
         self
     }
 
-    pub fn cwd(mut self, cwd: impl AsRef<PathBuf>) -> Self {
+    pub fn cwd<P: AsRef<Path>>(mut self, cwd: P) -> Self {
         self.cwd = Some(cwd.as_ref().to_path_buf());
         self
     }
