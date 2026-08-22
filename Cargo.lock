@@ -628,6 +628,14 @@ dependencies = [
  "chrono",
  "clap",
  "crossterm",
+ "fyrer-cache",
+ "fyrer-config",
+ "fyrer-core",
+ "fyrer-engine",
+ "fyrer-log",
+ "fyrer-process",
+ "fyrer-ui",
+ "fyrer-watch",
  "glob",
  "humantime-serde",
  "libc",
@@ -641,6 +649,111 @@ dependencies = [
  "thiserror 1.0.69",
  "tokio",
  "zstd",
+]
+
+[[package]]
+name = "fyrer-cache"
+version = "0.3.3"
+dependencies = [
+ "anyhow",
+ "blake3",
+ "chrono",
+ "fyrer-core",
+ "glob",
+ "serde",
+ "serde_json",
+ "tar",
+ "tempfile",
+ "tokio",
+ "zstd",
+]
+
+[[package]]
+name = "fyrer-config"
+version = "0.3.3"
+dependencies = [
+ "anyhow",
+ "fyrer-core",
+ "glob",
+ "humantime-serde",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "thiserror 1.0.69",
+]
+
+[[package]]
+name = "fyrer-core"
+version = "0.3.3"
+dependencies = [
+ "serde",
+ "thiserror 1.0.69",
+]
+
+[[package]]
+name = "fyrer-engine"
+version = "0.3.3"
+dependencies = [
+ "anyhow",
+ "blake3",
+ "chrono",
+ "fyrer-cache",
+ "fyrer-core",
+ "fyrer-log",
+ "fyrer-process",
+ "glob",
+ "owo-colors",
+ "serde",
+ "tempfile",
+ "tokio",
+]
+
+[[package]]
+name = "fyrer-log"
+version = "0.3.3"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "fyrer-core",
+ "serde",
+ "tokio",
+]
+
+[[package]]
+name = "fyrer-process"
+version = "0.3.3"
+dependencies = [
+ "anyhow",
+ "fyrer-core",
+ "libc",
+ "tokio",
+]
+
+[[package]]
+name = "fyrer-ui"
+version = "0.3.3"
+dependencies = [
+ "ansi-to-tui",
+ "anyhow",
+ "chrono",
+ "crossterm",
+ "fyrer-core",
+ "fyrer-engine",
+ "fyrer-log",
+ "owo-colors",
+ "ratatui",
+ "tokio",
+]
+
+[[package]]
+name = "fyrer-watch"
+version = "0.3.3"
+dependencies = [
+ "anyhow",
+ "fyrer-core",
+ "fyrer-engine",
+ "glob",
+ "tokio",
 ]
 
 [[package]]

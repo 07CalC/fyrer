@@ -1,11 +1,21 @@
-[package]
-name = "fyrer"
+[workspace]
+members = ["crates/*"]
+resolver = "2"
+
+[workspace.package]
 version = "0.3.3"
 edition = "2024"
 authors = ["Calc <hello@vinm.me>"]
 license = "MIT"
-description = "A lightweight declarative language agnostic monorepo tool / task orchestrator"
 repository = "https://github.com/07calc/fyrer"
+
+[package]
+name = "fyrer"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "A lightweight declarative language agnostic monorepo tool / task orchestrator"
 readme = "README.md"
 keywords = ["monorepo", "task-runner", "dev-server", "concurrency", "cli"]
 categories = ["command-line-utilities", "development-tools"]
@@ -17,6 +27,14 @@ blake3 = "1.8.6"
 chrono = "0.4.45"
 clap = { version = "4.5", features = ["derive"] }
 crossterm = "0.29.0"
+fyrer-cache = { path = "crates/fyrer-cache" }
+fyrer-config = { path = "crates/fyrer-config" }
+fyrer-core = { path = "crates/fyrer-core" }
+fyrer-engine = { path = "crates/fyrer-engine" }
+fyrer-log = { path = "crates/fyrer-log" }
+fyrer-process = { path = "crates/fyrer-process" }
+fyrer-ui = { path = "crates/fyrer-ui" }
+fyrer-watch = { path = "crates/fyrer-watch" }
 glob = "0.3.4"
 humantime-serde = "1.1.1"
 libc = "0.2"

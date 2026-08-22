@@ -1,0 +1,18 @@
+[package]
+name = "fyrer-config"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Config loading and validation for fyrer"
+repository.workspace = true
+
+[dependencies]
+fyrer-core = { path = "../fyrer-core" }
+anyhow = "1.0"
+serde = { version = "1.0", features = ["derive"] }
+serde_yaml = "0.9"
+serde_json = "1.0"
+glob = "0.3.4"
+thiserror = "1.0"
+humantime-serde = "1.1.1"

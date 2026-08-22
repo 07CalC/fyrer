@@ -1,0 +1,15 @@
+[package]
+name = "fyrer-watch"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "File watching for fyrer"
+repository.workspace = true
+
+[dependencies]
+fyrer-core = { path = "../fyrer-core" }
+fyrer-engine = { path = "../fyrer-engine" }
+anyhow = "1.0"
+tokio = { version = "1.30", features = ["full"] }
+glob = "0.3.4"

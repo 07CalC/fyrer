@@ -1,0 +1,72 @@
+use std::time::Duration;
+
+use fyrer_core::{Attempt, ExecKey, TaskId, status::{TaskOutcome, TaskStatus, SkipReason}};
+
+#[derive(Debug)]
+pub enum SupCommand {
+    Kill,
+    Stdin(String),
+}
+
+#[derive(Debug, Clone)]
+pub enum SupervisorMsg {
+    Started { key: ExecKey, pid: u32 },
+    Exited { key: ExecKey, outcome: TaskOutcome },
+}
+
+#[derive(Debug)]
+pub enum EngineCommand {
+    Start(RunPlan),
+    Restart(Vec<TaskId>),
+    Kill(Vec<TaskId>),
+    Shutdown,
+}
+
+#[derive(Debug, Clone)]
+pub struct RunPlan {
+    pub task_ids: Vec<TaskId>,
+    pub concurrency: Option<usize>,
+}
+
+impl RunPlan {
+    pub fn new(task_ids: Vec<TaskId>) -> Self {
+        Self { task_ids, concurrency: None }
+    }
+    pub fn with_concurrency(mut self, n: usize) -> Self {
+        self.concurrency = Some(n);
+        self
+    }
+}
+
+#[derive(Debug, Clone)]
+pub enum EngineEvent {
+    RunStarted { run: fyrer_core::RunId, planned: Vec<TaskId> },
+    TaskReady(TaskId),
+    TaskStarted { id: TaskId, attempt: Attempt, pid: u32 },
+    TaskFinished { id: TaskId, outcome: TaskOutcome, final_status: TaskStatus },
+    TaskLog { key: ExecKey, stream: LogStream, line: String },
+    TaskCacheHit { id: TaskId },
+    TaskSkipped { id: TaskId, reason: SkipReason },
+    TaskRestarting { id: TaskId, killed_attempt: Attempt },
+    DependentsStale { ids: Vec<TaskId> },
+    RunFinished(RunSummary),
+    NonFatalError { task_id: Option<TaskId>, error: String },
+    Warning { task_id: Option<TaskId>, message: String },
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum LogStream {
+    Stdout,
+    Stderr,
+    System,
+}
+
+#[derive(Debug, Clone)]
+pub struct RunSummary {
+    pub total: usize,
+    pub successful: usize,
+    pub cached: usize,
+    pub failed: usize,
+    pub skipped: usize,
+    pub duration: Duration,
+}

@@ -1,0 +1,20 @@
+[package]
+name = "fyrer-ui"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "UI reporters for fyrer"
+repository.workspace = true
+
+[dependencies]
+fyrer-core = { path = "../fyrer-core" }
+fyrer-engine = { path = "../fyrer-engine" }
+fyrer-log = { path = "../fyrer-log" }
+anyhow = "1.0"
+tokio = { version = "1.30", features = ["full"] }
+ratatui = "0.30.2"
+crossterm = "0.29.0"
+ansi-to-tui = "8.0.1"
+owo-colors = "4.3.0"
+chrono = "0.4"

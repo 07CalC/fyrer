@@ -1,0 +1,24 @@
+[package]
+name = "fyrer-engine"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Engine orchestration for fyrer — supervisor ownership + dynamic scheduling"
+repository.workspace = true
+
+[dependencies]
+fyrer-core = { path = "../fyrer-core" }
+fyrer-cache = { path = "../fyrer-cache" }
+fyrer-log = { path = "../fyrer-log" }
+fyrer-process = { path = "../fyrer-process" }
+anyhow = "1.0"
+tokio = { version = "1.30", features = ["full"] }
+serde = { version = "1.0", features = ["derive"] }
+chrono = "0.4"
+owo-colors = "4.3.0"
+glob = "0.3.4"
+blake3 = "1.8.6"
+
+[dev-dependencies]
+tempfile = "3.27.0"
