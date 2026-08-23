@@ -198,6 +198,10 @@ impl Engine {
 
         self.pump_ready(run_id, &mut st, &sup_tx, &semaphore).await;
 
+        // Set when the user hits Ctrl+C: overrides interactive parking so
+        // runs without a control channel (plain mode) still exit.
+        let mut aborted = false;
+
         loop {
             // Stamp + announce completion on the fresh done-transition so the
             // TUI summary appears immediately; interactive engines keep
@@ -209,7 +213,7 @@ impl Engine {
                     let summary = build_summary(&st.records, duration);
                     let _ = self.event_tx.send(EngineEvent::RunCompleted(summary));
                 }
-                if !wait_after_done {
+                if !wait_after_done || aborted {
                     break;
                 }
             }
@@ -228,8 +232,9 @@ impl Engine {
                     }
                 },
                 _ = tokio::signal::ctrl_c() => {
-                    // Kill children but stay in the loop until their exits
-                    // arrive through `sup_rx`.
+                    // Kill children; keep draining exits through `sup_rx`, but
+                    // remember to exit as soon as everything is terminal.
+                    aborted = true;
                     self.kill_all(&mut st).await;
                 },
                 Some(msg) = sup_rx.recv() => {
