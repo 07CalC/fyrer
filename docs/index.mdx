@@ -1,204 +1,54 @@
 ---
-title: "fyrer — Fast Declarative Monorepo Task Orchestrator"
-description: "Orchestrate monorepo builds and dev servers with declarative YAML, streaming DAG execution, and content-addressed caching for skip-what-hasn't-changed speed."
-mode: "custom"
+title: "Documentation"
+description: "Get started with fyrer — install, configure your first fyrer.yml, and run your monorepo tasks."
 ---
 
-<div className="relative overflow-hidden">
-  <div className="absolute inset-0 -z-10 bg-gradient-to-br from-orange-50 via-white to-pink-50 dark:from-orange-950/20 dark:via-gray-950 dark:to-pink-950/20" />
-  <div className="mx-auto max-w-6xl px-6 pt-16 pb-10 text-center">
-    <div className="inline-flex items-center gap-2 rounded-full border border-orange-200 bg-white px-3 py-1 text-xs font-medium text-orange-700 shadow-sm dark:border-orange-900 dark:bg-gray-900 dark:text-orange-300">
-      <span className="h-2 w-2 rounded-full bg-green-500 animate-pulse" />
-      v0.5.0 • Rust • Streaming DAG • Watch mode
-    </div>
-    <h1 className="mt-6 text-5xl font-extrabold tracking-tight sm:text-6xl">
-      Build faster.
-      <br />
-      <span className="bg-gradient-to-r from-orange-600 to-pink-600 bg-clip-text text-transparent">Ship together.</span>
-    </h1>
-    <p className="mx-auto mt-6 max-w-2xl text-lg leading-7 text-gray-600 dark:text-gray-300">
-      fyrer is a declarative, language-agnostic monorepo orchestrator. Define packages and tasks in <code>fyrer.yml</code>, and let fyrer resolve the DAG, run tasks in streaming order, and skip unchanged work with blake3 content hashing.
-    </p>
-    <div className="mt-8 flex flex-wrap justify-center gap-3">
-      <a href="/docs/quickstart" className="inline-flex items-center rounded-xl bg-orange-600 px-6 py-3 text-sm font-semibold text-white shadow hover:bg-orange-700">
-        Get Started →
-      </a>
-      <a href="/docs/installation" className="inline-flex items-center rounded-xl border bg-white px-6 py-3 text-sm font-semibold hover:bg-gray-50 dark:bg-gray-900 dark:border-gray-800">
-        Installation
-      </a>
-      <a href="https://github.com/07calc/fyrer" className="inline-flex items-center gap-2 rounded-xl border px-6 py-3 text-sm font-semibold hover:bg-gray-50 dark:border-gray-800">
-        GitHub
-      </a>
-    </div>
-    <div className="mt-4 flex justify-center gap-6 text-xs text-gray-500">
-      <span>✓ No daemon</span>
-      <span>✓ Single binary</span>
-      <span>✓ 6 targets</span>
-      <span>✓ .fyrer/cache</span>
-    </div>
-  </div>
-</div>
+# Documentation
 
-<Columns cols={2}>
-  <div>
-    ### One file. Every language.
+Welcome to the fyrer docs. Start here to install fyrer, write your first `fyrer.yml`, and understand how fyrer schedules, caches, and streams your monorepo tasks.
 
-    ```yaml fyrer.yml
-    version: 1
-    concurrency: 8
-    cache:
-      provider: local
-    packages:
-      - name: ui
-        root: ./packages/ui
-        tasks:
-          build:
-            cmd: bun build src --outdir dist
-            inputs: [src/**]
-            outputs: [dist/**]
-            cache: true
-      - name: api
-        root: ./apps/api
-        tasks:
-          build:
-            cmd: cargo build --release
-            cache: true
-          dev:
-            cmd: cargo run
-            depends_on: [api:build]
-            persistent: true
-      - name: web
-        root: ./apps/web
-        tasks:
-          dev:
-            cmd: bun --watch src
-            depends_on: [ui:build]
-            persistent: true
-          build:
-            cmd: bun build src --outdir dist
-            depends_on: [ui:build]
-            cache: true
-    ```
-  </div>
-  <div>
-    ### Streaming, cached, observable
-
-    ```bash
-    $ fyrer run build -n
-    [ui:build] $ bun build src --outdir dist
-    [api:build] $ cargo build --release
-    [ui:build] ✓ 310ms
-    [api:build] ✓ 2.1s
-    [web:build] $ bun build src --outdir dist
-    [web:build] ✓ 420ms
-
-    $ fyrer run build -n
-    [ui:build] ⚡ Cached
-    [api:build] ⚡ Cached
-    [web:build] ⚡ Cached
-    Run completed in 0.04s — ALL CACHED
-    ```
-
-    <Note>
-      Second run restores `dist/**` and `target/**` from `.fyrer/cache/*.tar.zst` — no rebuild, no network.
-    </Note>
-  </div>
-</Columns>
-
-## Why fyrer
-
-<CardGroup cols={3}>
-  <Card title="Streaming DAG" icon="bolt">
-    Tasks start as soon as dependencies succeed, up to `concurrency`. No level barriers — `web:build` starts right after `ui:build`, even while `api:build` is still running.
+<CardGroup cols={2}>
+  <Card title="Introduction" icon="book-open-cover" href="/docs/introduction">
+    What fyrer does, who it's for, and current limitations.
   </Card>
-  <Card title="Content-addressed cache" icon="database">
-    blake3 over `id + cmd + cwd + env + inputs`. Outputs archived as `tar.zst` relative to workspace root, restored on `⚡ Cached`.
+  <Card title="Installation" icon="download" href="/docs/installation">
+    Install via install script, cargo, or build from source.
   </Card>
-  <Card title="Language agnostic" icon="layer-group">
-    If it runs in a shell, fyrer can orchestrate it. Mix Rust, Go, TypeScript, Python, and more in one `fyrer.yml`.
+  <Card title="Quick Start" icon="rocket" href="/docs/quickstart">
+    From zero to cached builds in minutes.
   </Card>
-  <Card title="Watch mode" icon="eye">
-    `watch: true` polls `inputs` every 300ms (debounced) and restarts on change. Dependents turn `↻ Stale` in the TUI.
-  </Card>
-  <Card title="Interactive TUI" icon="desktop">
-    Per-task log panes, `r` to restart, `K` to kill, `q` to quit. Pass `-n` for plain prefixed logs in CI.
-  </Card>
-  <Card title="Single binary" icon="cube">
-    No daemon, no runtime. Install via `install.sh`, `cargo install fyrer`, or build from source. 6 prebuilt targets.
+  <Card title="Configuration" icon="sliders" href="/docs/configuration/overview">
+    Complete `fyrer.yml` reference for packages and tasks.
   </Card>
 </CardGroup>
 
-## How it works in 3 steps
+## Core Concepts
 
-<Steps>
-  <Step title="Add fyrer.yml">
-    Put `fyrer.yml` at your repo root and list packages + tasks. Use `depends_on: [ui:build]` or bare `build` for same-package deps.
+<CardGroup cols={2}>
+  <Card title="How It Works" icon="bolt" href="/docs/concepts/how-it-works">
+    Streaming DAG, caching, and failure propagation.
+  </Card>
+  <Card title="Packages & Tasks" icon="layer-group" href="/docs/concepts/packages-and-tasks">
+    Packages, tasks, and task specifiers.
+  </Card>
+  <Card title="Dependency Graph" icon="diagram-project" href="/docs/concepts/dependency-graph">
+    DAG resolution and execution order.
+  </Card>
+  <Card title="Caching" icon="database" href="/docs/concepts/caching">
+    Content-addressed local cache with `tar.zst`.
+  </Card>
+</CardGroup>
 
-    ```bash
-    fyrer list          # see every package:task
-    fyrer plan build    # preview levels (display only)
-    ```
-  </Step>
-  <Step title="Run">
-    ```bash
-    fyrer run build -n   # CI: plain logs, exit code signals failure
-    fyrer run dev        # TUI: all dev servers, streaming logs
-    ```
+## Guides
 
-    Streaming order: `api:build` and `ui:build` start together; `web:build` starts as soon as `ui:build` succeeds.
-  </Step>
-  <Step title="Iterate">
-    Edit code, save, and watch-mode tasks restart automatically. Unchanged `build` tasks hit `⚡ Cached` and restore outputs instantly.
-
-    ```bash
-    fyrer run build   # only changed packages rebuild
-    ```
-  </Step>
-</Steps>
-
-<Columns cols={2}>
-  <div>
-    ### TUI built for monorepos
-
-    | Key | Action |
-    | --- | --- |
-    | `q` / `Ctrl+C` | Quit and kill process groups |
-    | `j`/`k` `↑`/`↓` | Select task |
-    | `u`/`d` `PgUp`/`PgDn` | Scroll logs |
-    | `g`/`G` | Top / tail |
-    | `r` | Restart selected task |
-    | `K` | Kill selected task |
-
-    <Tip>
-      In CI, use `fyrer run build -n` — each line is prefixed `[package:task]` and colorized per package.
-    </Tip>
-  </div>
-  <div>
-    ### Configuration you can trust
-
-    ```yaml
-    tasks:
-      build:
-        cmd: bun build src --outdir dist
-        inputs: [src/**, package.json]
-        outputs: [dist/**]
-        ignore: [node_modules/**]
-        cache: true
-        timeout: 5m
-        cwd: subdir
-        env: { NODE_ENV: production }
-        env_file: .env.production
-    ```
-
-    Validated at startup: unique names, relative `root`/`cwd`/`env_file` that exist, valid `inputs`/`outputs` globs, `cache` ≠ `persistent`/`watch`.
-  </div>
-</Columns>
-
-<div className="mt-12 rounded-2xl border bg-gradient-to-br from-orange-600 to-pink-600 p-8 text-white text-center">
-  <h3 className="text-2xl font-bold">Ready to orchestrate?</h3>
-  <p className="mt-2 text-white/90">One binary. One YAML. Every language. From zero to cached builds in minutes.</p>
-  <div className="mt-6 flex justify-center gap-3">
-    <a href="/docs/quickstart" className="rounded-xl bg-white px-6 py-3 text-sm font-semibold text-orange-700 hover:bg-gray-50">Quick Start →</a>
-    <a href="/docs/installation" className="rounded-xl bg-white/10 px-6 py-3 text-sm font-semibold text-white ring-1 ring-white/30 hover:bg-white/20">Install fyrer</a>
-  </div>
-</div>
+<CardGroup cols={2}>
+  <Card title="Dev Servers" icon="server" href="/docs/guides/dev-servers">
+    Run multiple dev servers with the TUI.
+  </Card>
+  <Card title="CI Mode" icon="gears" href="/docs/guides/ci-mode">
+    Plain logs, caching in CI, and exit codes.
+  </Card>
+  <Card title="Multi-Language" icon="code" href="/docs/guides/multi-language">
+    Orchestrate Rust, Go, TypeScript, Python together.
+  </Card>
+</CardGroup>

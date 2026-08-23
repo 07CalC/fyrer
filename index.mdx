@@ -1,0 +1,298 @@
+---
+title: "fyrer — Fast Declarative Monorepo Task Orchestrator"
+description: "One fyrer.yml file. fyrer resolves your monorepo's task graph, streams execution the moment dependencies finish, and skips anything blake3 has already seen."
+mode: "custom"
+---
+
+<div className="relative overflow-hidden bg-stone-950">
+  <div className="pointer-events-none absolute inset-0 -z-10 bg-[radial-gradient(circle_at_20%_-10%,rgba(249,115,22,0.18),transparent_45%),radial-gradient(circle_at_85%_10%,rgba(251,191,36,0.10),transparent_40%)]" />
+
+  <nav className="sticky top-0 z-20 border-b border-stone-800/80 bg-stone-950/70 backdrop-blur">
+    <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-3.5">
+      <a href="/" className="flex items-center gap-2.5">
+        <img src="/docs/images/fyrer-light.png" alt="fyrer" className="h-6 w-6 rounded" />
+        <span className="font-mono text-sm font-bold tracking-tight text-stone-100">fyrer</span>
+        <span className="hidden sm:inline rounded-full border border-stone-700 bg-stone-900 px-2 py-0.5 font-mono text-[10px] text-stone-400">v0.5.0</span>
+      </a>
+      <div className="flex items-center gap-1">
+        <a href="/docs/introduction" className="rounded-lg px-3 py-1.5 text-sm font-medium text-stone-300 hover:bg-stone-900 hover:text-white">Docs</a>
+        <a href="/docs/installation" className="hidden sm:inline rounded-lg px-3 py-1.5 text-sm font-medium text-stone-400 hover:bg-stone-900 hover:text-white">Install</a>
+        <a href="/docs/quickstart" className="hidden sm:inline rounded-lg px-3 py-1.5 text-sm font-medium text-stone-400 hover:bg-stone-900 hover:text-white">Quickstart</a>
+        <a href="https://github.com/07calc/fyrer" className="ml-1 inline-flex items-center gap-1.5 rounded-lg bg-white px-3.5 py-1.5 text-sm font-semibold text-stone-900 hover:bg-stone-100">
+          GitHub
+        </a>
+      </div>
+    </div>
+  </nav>
+
+  <div className="mx-auto max-w-6xl px-6 pt-16 pb-14">
+    <div className="flex flex-col items-center text-center">
+      <div className="inline-flex items-center gap-2 rounded-full border border-stone-700 bg-stone-900/80 px-3 py-1 font-mono text-xs text-stone-300">
+        <span className="relative flex h-1.5 w-1.5">
+          <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-orange-500 opacity-75" />
+          <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-orange-500" />
+        </span>
+        v0.5.0 · rust · single binary · no daemon
+      </div>
+
+      <h1 className="mt-7 max-w-3xl font-mono text-4xl font-bold leading-[1.15] tracking-tight text-stone-50 sm:text-5xl">
+        The moment a task's ready,
+        <br />
+        <span className="text-orange-500">it runs.</span>
+      </h1>
+
+      <p className="mx-auto mt-6 max-w-xl text-base leading-7 text-stone-400">
+        Describe your packages and tasks in one <code className="rounded bg-stone-800 px-1.5 py-0.5 text-stone-200">fyrer.yml</code>. fyrer resolves the graph, streams tasks the instant their dependencies succeed — no level barriers — and skips anything blake3 has already fingerprinted.
+      </p>
+
+      <div className="mt-8 flex flex-wrap justify-center gap-3">
+        <a href="/docs/quickstart" className="inline-flex items-center rounded-lg bg-orange-500 px-5 py-2.5 text-sm font-semibold text-stone-950 shadow-[0_0_0_1px_rgba(0,0,0,0.05)] hover:bg-orange-400">
+          Get started →
+        </a>
+        <a href="/docs/installation" className="inline-flex items-center rounded-lg border border-stone-700 px-5 py-2.5 text-sm font-semibold text-stone-200 hover:bg-stone-900">
+          Installation
+        </a>
+        <a href="https://github.com/07calc/fyrer" className="inline-flex items-center gap-2 rounded-lg border border-stone-700 px-5 py-2.5 text-sm font-semibold text-stone-200 hover:bg-stone-900">
+          GitHub
+        </a>
+      </div>
+
+      <div className="mt-5 flex flex-wrap justify-center gap-x-5 gap-y-1 font-mono text-xs text-stone-500">
+        <span>no daemon</span>
+        <span>·</span>
+        <span>single binary</span>
+        <span>·</span>
+        <span>6 targets</span>
+        <span>·</span>
+        <span>.fyrer/cache</span>
+      </div>
+    </div>
+
+    <div className="mt-14">
+    <Columns cols={2}>
+      <div>
+        <div className="flex items-center gap-1.5 rounded-t-xl border border-b-0 border-stone-800 bg-stone-900 px-4 py-2.5">
+          <span className="h-2.5 w-2.5 rounded-full bg-stone-700" />
+          <span className="h-2.5 w-2.5 rounded-full bg-stone-700" />
+          <span className="h-2.5 w-2.5 rounded-full bg-stone-700" />
+          <span className="ml-2 font-mono text-xs text-stone-500">fyrer.yml</span>
+        </div>
+
+        ```yaml
+        version: 1
+        concurrency: 8
+        cache:
+          provider: local
+        packages:
+          - name: ui
+            root: ./packages/ui
+            tasks:
+              build:
+                cmd: bun build src --outdir dist
+                inputs: [src/**]
+                outputs: [dist/**]
+                cache: true
+          - name: api
+            root: ./apps/api
+            tasks:
+              build:
+                cmd: cargo build --release
+                cache: true
+              dev:
+                cmd: cargo run
+                depends_on: [api:build]
+                persistent: true
+          - name: web
+            root: ./apps/web
+            tasks:
+              build:
+                cmd: bun build src --outdir dist
+                depends_on: [ui:build]
+                cache: true
+        ```
+      </div>
+
+      <div>
+        <div className="flex items-center gap-1.5 rounded-t-xl border border-b-0 border-stone-800 bg-stone-900 px-4 py-2.5">
+          <span className="h-2.5 w-2.5 rounded-full bg-stone-700" />
+          <span className="h-2.5 w-2.5 rounded-full bg-stone-700" />
+          <span className="h-2.5 w-2.5 rounded-full bg-stone-700" />
+          <span className="ml-2 font-mono text-xs text-stone-500">terminal</span>
+        </div>
+
+        ```bash
+        $ fyrer run build -n
+        [ui:build]  $ bun build src --outdir dist
+        [api:build] $ cargo build --release
+        [ui:build]  ✓ 310ms
+        [api:build] ✓ 2.1s
+        [web:build] $ bun build src --outdir dist
+        [web:build] ✓ 420ms
+
+        $ fyrer run build -n
+        [ui:build]  ⚡ Cached
+        [api:build] ⚡ Cached
+        [web:build] ⚡ Cached
+        Run completed in 0.04s — ALL CACHED
+        ```
+      </div>
+    </Columns>
+    </div>
+  </div>
+</div>
+
+## No level barriers
+
+Most monorepo runners schedule in levels: every task at depth *N* has to finish before depth *N+1* starts. fyrer schedules the graph itself — a task starts the instant its own dependencies succeed, whether or not its siblings are done.
+
+Same three tasks, same durations, two schedulers:
+
+<div className="not-prose my-8 rounded-xl border border-stone-800 bg-stone-950 p-6">
+  <div className="space-y-5">
+    <div>
+      <div className="mb-2 flex items-center justify-between font-mono text-xs text-stone-500">
+        <span>level-barrier scheduler</span>
+        <span>2.52s total</span>
+      </div>
+      <div className="relative h-6 rounded bg-stone-900">
+        <div className="absolute inset-y-0 left-0 flex w-[12%] items-center justify-end rounded-l bg-stone-700 pr-1.5">
+          <span className="font-mono text-[10px] text-stone-300">ui</span>
+        </div>
+        <div className="absolute inset-y-0 left-0 flex w-[81%] items-center justify-end rounded bg-stone-600 pr-1.5">
+          <span className="font-mono text-[10px] text-stone-200">api:build</span>
+        </div>
+        <div className="absolute inset-y-0 left-[81%] flex w-[16%] items-center justify-end rounded-r bg-stone-500 pr-1.5">
+          <span className="font-mono text-[10px] text-stone-100">web</span>
+        </div>
+      </div>
+      <p className="mt-1.5 font-mono text-[11px] text-stone-600">web:build waits for the whole level, even though ui:build finished 1.8s earlier</p>
+    </div>
+
+    <div>
+      <div className="mb-2 flex items-center justify-between font-mono text-xs text-stone-500">
+        <span>fyrer</span>
+        <span className="text-orange-400">2.1s total</span>
+      </div>
+      <div className="relative h-6 rounded bg-stone-900">
+        <div className="absolute inset-y-0 left-0 flex w-[12%] items-center justify-end rounded-l bg-orange-800/70 pr-1.5">
+          <span className="font-mono text-[10px] text-orange-200">ui</span>
+        </div>
+        <div className="absolute inset-y-0 left-0 flex w-[81%] items-center justify-end rounded bg-orange-600 pr-1.5">
+          <span className="font-mono text-[10px] text-stone-950">api:build</span>
+        </div>
+        <div className="absolute inset-y-0 left-[12%] flex w-[16%] items-center justify-end rounded-r bg-amber-400 pr-1.5">
+          <span className="font-mono text-[10px] text-stone-950">web</span>
+        </div>
+      </div>
+      <p className="mt-1.5 font-mono text-[11px] text-stone-600">web:build only depends on ui:build, so it starts at 310ms — while api:build is still running</p>
+    </div>
+
+    <div className="flex font-mono text-[10px] text-stone-600">
+      <span className="w-[12%]">0s</span>
+      <span className="w-[69%]">1s</span>
+      <span className="flex-1">2s</span>
+      <span>2.6s</span>
+    </div>
+  </div>
+</div>
+
+## Why fyrer
+
+<CardGroup cols={3}>
+  <Card title="Streaming DAG" icon="bolt">
+    Tasks start the instant their dependencies succeed, up to `concurrency`. `web:build` starts right after `ui:build` — it doesn't wait on `api:build`.
+  </Card>
+  <Card title="Content-addressed cache" icon="database">
+    blake3 hashes `id + cmd + cwd + env + inputs`. Outputs archive as `tar.zst` relative to the workspace root and restore whole on a cache hit.
+  </Card>
+  <Card title="Language agnostic" icon="layer-group">
+    If it runs in a shell, fyrer can schedule it. Mix Rust, Go, TypeScript, and Python tasks in one `fyrer.yml`.
+  </Card>
+  <Card title="Watch mode" icon="eye">
+    `watch: true` polls `inputs` every 300ms, debounced, and restarts the task on change. Dependents flip to `↻ Stale` in the TUI.
+  </Card>
+  <Card title="Interactive TUI" icon="desktop">
+    Per-task log panes. `r` restarts, `K` kills, `q` quits. Pass `-n` in CI for plain, prefixed logs instead.
+  </Card>
+  <Card title="Single binary" icon="cube">
+    No daemon, no runtime to manage. Install with `install.sh` or `cargo install fyrer` — 6 prebuilt targets.
+  </Card>
+</CardGroup>
+
+## How it works
+
+<Steps>
+  <Step title="Describe the graph">
+    Put `fyrer.yml` at the repo root and list packages and tasks. `depends_on: [ui:build]` points at another package's task; a bare `build` means "my own build task."
+
+    ```bash
+    fyrer list          # every package:task
+    fyrer plan build    # preview levels — for reading, not scheduling
+    ```
+  </Step>
+  <Step title="Run it">
+    ```bash
+    fyrer run build -n   # CI: plain logs, exit code carries the result
+    fyrer run dev        # TUI: every dev server, logs streaming live
+    ```
+
+    `api:build` and `ui:build` start together. `web:build` starts the moment `ui:build` succeeds, not when the level clears.
+  </Step>
+  <Step title="Iterate">
+    Save a file and any `watch: true` task restarts on its own. Untouched `build` tasks hit `⚡ Cached` and restore their outputs instead of rebuilding.
+
+    ```bash
+    fyrer run build   # only what changed actually runs
+    ```
+  </Step>
+</Steps>
+
+<Columns cols={2}>
+  <div>
+    ### Built for watching a monorepo run
+
+    | Key | Action |
+    | --- | --- |
+    | `q` / `Ctrl+C` | Quit, killing every process group |
+    | `j`/`k` `↑`/`↓` | Select a task |
+    | `u`/`d` `PgUp`/`PgDn` | Scroll that task's log |
+    | `g`/`G` | Jump to top / tail |
+    | `r` | Restart the selected task |
+    | `K` | Kill the selected task |
+
+    <Tip>
+      In CI, run `fyrer run build -n`. Every line comes prefixed `[package:task]`, colorized per package, no TUI required.
+    </Tip>
+  </div>
+  <div>
+    ### Every option a task can take
+
+    ```yaml
+    tasks:
+      build:
+        cmd: bun build src --outdir dist
+        inputs: [src/**, package.json]
+        outputs: [dist/**]
+        ignore: [node_modules/**]
+        cache: true
+        timeout: 5m
+        cwd: subdir
+        env: { NODE_ENV: production }
+        env_file: .env.production
+    ```
+
+    fyrer validates all of it at startup: names are unique, `root`/`cwd`/`env_file` are relative paths that exist, `inputs`/`outputs` are valid globs, and `cache` never combines with `persistent` or `watch`.
+  </div>
+</Columns>
+
+<div className="not-prose relative mt-14 overflow-hidden rounded-2xl border border-stone-800 bg-stone-950">
+  <div className="relative p-10 text-center">
+    <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_50%_0%,rgba(249,115,22,0.15),transparent_60%)]" />
+    <h3 className="font-mono text-2xl font-bold text-stone-50">Stop waiting on levels.</h3>
+    <p className="mx-auto mt-2 max-w-md text-stone-400">One binary, one YAML file, every language you're already running. Cached builds in minutes, not a migration.</p>
+    <div className="relative mt-7 flex justify-center gap-3">
+      <a href="/docs/quickstart" className="rounded-lg bg-orange-500 px-6 py-3 text-sm font-semibold text-stone-950 hover:bg-orange-400">Quick start →</a>
+      <a href="/docs/installation" className="rounded-lg border border-stone-700 px-6 py-3 text-sm font-semibold text-stone-200 hover:bg-stone-900">Install fyrer</a>
+    </div>
+  </div>
+</div>
