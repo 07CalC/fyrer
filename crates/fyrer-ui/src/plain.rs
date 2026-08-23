@@ -21,6 +21,15 @@ impl Reporter for PlainReporter {
                     Ok(EngineEvent::TaskStarted { id, attempt, .. }) => {
                         println!("[{}#{}] started", id, attempt.0);
                     }
+                    Ok(EngineEvent::FilesChanged { id, paths }) => {
+                        let names: Vec<String> =
+                            paths.iter().take(3).map(|p| short_name(p)).collect();
+                        let mut msg = names.join(", ");
+                        if paths.len() > 3 {
+                            msg.push_str(&format!(" +{} more", paths.len() - 3));
+                        }
+                        println!("\x1b[33m✎\x1b[0m [{id}] changed: {msg} — restarting");
+                    }
                     Ok(EngineEvent::TaskFinished { id, outcome, .. }) => {
                         if outcome.is_success() {
                             println!("\x1b[32m✓\x1b[0m [{}] complete", id);
@@ -46,4 +55,11 @@ impl Reporter for PlainReporter {
             Ok(())
         })
     }
+}
+
+/// Last path segment for compact display in log lines.
+fn short_name(path: &std::path::Path) -> String {
+    path.file_name()
+        .map(|n| n.to_string_lossy().to_string())
+        .unwrap_or_else(|| path.to_string_lossy().to_string())
 }
