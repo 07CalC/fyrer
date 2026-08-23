@@ -37,7 +37,7 @@ A task is a named command inside a package. Tasks declare what to run, what they
 </ParamField>
 
 <ParamField body="watch" type="boolean" default="false">
-  Marks a task that restarts when watched inputs change. Cannot be combined with `cache`. **Note:** file-watching is not yet implemented; this flag is reserved for a future release.
+  Marks a task that restarts when watched inputs change. Cannot be combined with `cache`. When enabled, fyrer polls the task's `inputs` globs every 300ms and restarts the task (debounced 300ms) when files change.
 </ParamField>
 
 <ParamField body="timeout" type="string">

@@ -69,7 +69,7 @@ packages:
         ignore:
           - node_modules/**
         cache: false
-        watch: true     # reserved — auto-restart watcher not yet implemented
+        watch: true     # polls inputs and restarts on change (300ms poll, 300ms debounce)
         env:
           NODE_ENV: development
 
@@ -265,7 +265,7 @@ packages:
 ```
 
 <Note>
-The `watch: true` flag is part of the fyrer config schema and is recognized by `fyrer list` and `fyrer plan`, but the file-watcher that triggers automatic task restarts is not yet implemented. Tasks with `watch: true` are treated as plain persistent tasks at runtime — they will not restart automatically when input files change.
+Tasks with `watch: true` are watched by polling their `inputs` globs every 300ms (debounced 300ms). When inputs change, the task is restarted automatically and its dependents are marked `Stale` (visible as `↻` in the TUI). `watch` cannot be combined with `cache`.
 </Note>
 
 ## Running the whole stack

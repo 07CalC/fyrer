@@ -125,7 +125,7 @@ Before running anything, print the topological execution plan to verify that dep
 fyrer plan build
 ```
 
-fyrer resolves the full dependency graph and prints each level in the order tasks will execute — without actually running a single command. This is especially useful when wiring up a new `depends_on` relationship and you want to confirm the order is right.
+fyrer resolves the full dependency graph and prints levels (for display only — execution is streaming) in the order tasks will become runnable. This is especially useful when wiring up a new `depends_on` relationship and you want to confirm the order is right.
 
 ### Run your build
 
@@ -135,7 +135,7 @@ Execute the `build` task across every package:
 fyrer run build
 ```
 
-fyrer resolves the dependency graph, runs each level of the graph concurrently, and streams every task's output through the TUI. On the **second run**, if no input files have changed, each task is reported as `⚡ Cached` and completes instantly — no recompilation needed.
+fyrer resolves the dependency graph, runs tasks in streaming order as soon as dependencies finish (up to the `concurrency` limit), and streams every task's output through the TUI. On the **second run**, if no input files have changed, each task is reported as `⚡ Cached` and completes instantly — no recompilation needed.
 
 ### Start dev servers
 
@@ -155,10 +155,12 @@ When `fyrer run` opens the full-screen TUI, the following keys are available:
 
 | Key | Action |
 | --- | --- |
-| `q` / `Ctrl+C` | Quit (kills all spawned processes) |
+| `q` / `Ctrl+C` | Quit (kills all spawned process groups) |
 | `j` / `k` or `↑` / `↓` | Select previous / next task |
 | `u` / `d` or `PageUp` / `PageDown` | Scroll the log pane |
 | `g` / `G` | Jump to top / tail (follow) |
+| `r` | Restart the selected task |
+| `K` (Shift+k) | Kill the selected task |
 | Mouse wheel | Scroll the log |
 | `Enter` | Browse task logs after run finishes |
 

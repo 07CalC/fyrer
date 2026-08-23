@@ -4,7 +4,7 @@ sidebarTitle: "Home"
 description: "fyrer orchestrates monorepo builds and dev servers — declarative YAML config, dependency resolution, parallel execution, and content-addressed caching."
 ---
 
-Welcome to **fyrer** — a declarative, language-agnostic task orchestrator built for monorepos. Define your packages and tasks in a `fyrer.yml` config file at your repo root, and fyrer resolves the dependency graph, runs tasks concurrently at each level, and skips unchanged work using a content-addressed cache. Whether you're coordinating Rust services, TypeScript frontends, or Python tooling, fyrer keeps your build pipeline fast and your dev loop tight.
+Welcome to **fyrer** — a declarative, language-agnostic task orchestrator built for monorepos. Define your packages and tasks in a `fyrer.yml` config file at your repo root, and fyrer resolves the dependency graph, runs tasks in streaming order as soon as dependencies finish, and skips unchanged work using a content-addressed cache. Whether you're coordinating Rust services, TypeScript frontends, or Python tooling, fyrer keeps your build pipeline fast and your dev loop tight.
 
 <CardGroup cols={2}>
   <Card title="Quick Start" icon="rocket" href="/quickstart">
@@ -25,7 +25,7 @@ Welcome to **fyrer** — a declarative, language-agnostic task orchestrator buil
 
 <CardGroup cols={2}>
   <Card title="Concurrent Execution" icon="bolt" href="/concepts/how-it-works">
-    Runs tasks at each dependency graph level in parallel, maximising throughput across your monorepo.
+    Runs tasks in streaming DAG order, maximising throughput across your monorepo.
   </Card>
   <Card title="Build Caching" icon="database" href="/concepts/caching">
     Content-addressed cache skips unchanged tasks with ⚡ Cached — only rebuild what actually changed.

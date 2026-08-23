@@ -41,9 +41,12 @@ The cache key is a **blake3** hash of the following inputs, all resolved at run 
 3. The task's working directory
 4. The fully resolved environment (all env layers merged in precedence order)
 5. The contents of every file matched by the task's `inputs` globs
-6. The cache keys of every task listed in `depends_on`
 
-Because dependency cache keys are included, a change anywhere upstream automatically invalidates all downstream tasks — even if their own source files haven't changed. You never need to manually bust the cache.
+Outputs are archived as `tar.zst` under `.fyrer/cache/<key>/` relative to the workspace root and restored on a hit. An additional output digest (blake3 of `outputs`) decides whether hydration is needed — unchanged outputs are left in place.
+
+<Note>
+  The cache key does **not** include transitive dependency keys. If `app:build` depends on `shared:build` and `shared` changes, `app:build` will not be invalidated unless its own `inputs` also cover the change. Add the shared outputs or a version file to `inputs` if you need cross-package invalidation, or rely on `watch` restarts during development.
+</Note>
 
 ## Cache storage
 
@@ -90,5 +93,5 @@ build:
 A few combinations are not allowed and will be rejected at startup:
 
 - **`cache: true` + `persistent: true`** — Dev servers run indefinitely and never produce a stable final output, so they cannot be cached.
-- **`cache: true` + `watch: true`** — The `watch` flag is reserved for a future release; combining it with `cache: true` is rejected at startup regardless, because a watch-mode task would not have a single deterministic "done" state to cache.
+- **`cache: true` + `watch: true`** — Watched tasks restart on input changes and have no single deterministic "done" state to cache.
 - **Tasks without `inputs`** — If no `inputs` are declared, the cache key is computed from the task config alone (ID, command, environment). Any file change in the package will *not* invalidate the cache. Always declare `inputs` for tasks that read source files.

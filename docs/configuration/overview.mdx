@@ -14,6 +14,7 @@ cache:
   provider: local         # Cache backend. Only "local" is available.
 env:                      # Variables available to all packages and tasks.
   NODE_ENV: development
+concurrency: 8            # Max concurrent tasks (default: CPU count)
 packages:                 # List of packages in your monorepo.
   - name: web
     root: ./apps/web
@@ -31,6 +32,7 @@ packages:                 # List of packages in your monorepo.
 | `cache` | object | No | Cache configuration. |
 | `cache.provider` | string | No | Cache backend. Only `"local"` supported. |
 | `env` | map | No | Environment variables for all packages. |
+| `concurrency` | integer | No | Max concurrent tasks. Defaults to available parallelism. |
 | `packages` | array | Yes | List of package definitions. |
 
 ## Where to place fyrer.yml

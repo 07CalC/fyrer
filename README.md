@@ -200,12 +200,8 @@ prefixed, colorized log output instead.
 
 ### Notes and limitations
 
-- Tasks in the same graph level run concurrently, and a level finishes before
-  the next one starts. A `persistent` task therefore blocks any later levels,
-  so keep dev servers on leaves of the graph.
-- The `watch` flag and the `FileChanged`/`RestartRequest` events are part of
-  the config schema and UI, but the file-watcher that triggers automatic
-  restarts is not wired up yet.
+- Tasks run in streaming DAG order: a task starts as soon as its dependencies succeed, up to the `concurrency` limit. A `persistent` task only blocks its transitive dependents — unrelated branches still run concurrently. Keep dev servers on leaves of the graph.
+- `watch: true` is implemented via polling: input globs are checked every 300ms (debounced 300ms) and the task restarts automatically when inputs change. `watch` cannot be combined with `cache`.
 
 ## Releasing
 

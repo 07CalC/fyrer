@@ -21,15 +21,15 @@ tasks:
 
 In this example, `dev` will not start until both `ui:build` (in the `ui` package) and `check` (in the same package as `dev`) have completed successfully.
 
-## Execution levels
+## Execution order
 
-fyrer groups tasks into **levels** based on their position in the graph:
+Execution is streaming, not level-barriered: a task starts as soon as all of its dependencies have succeeded or were cached, up to the `concurrency` limit. `fyrer plan` groups tasks into **levels** for display only.
 
-- **Level 0** — tasks with no unmet dependencies (nothing in their `depends_on`, or all dependencies are already satisfied).
+- **Level 0** — tasks with no unmet dependencies.
 - **Level 1** — tasks whose `depends_on` entries are all in level 0.
-- **Level N** — tasks whose `depends_on` entries are all covered by earlier levels.
+- **Level N** — tasks whose dependencies are all covered by earlier levels.
 
-All tasks within a level run concurrently. fyrer waits for every task in a level to finish before advancing to the next. This gives you maximum parallelism while still guaranteeing correct ordering.
+Levels are how `fyrer plan` visualises the graph. At runtime, tasks don't wait for levels to drain. For example, if `ui:build` finishes before `shared:build`, then `web:build` (which depends only on `ui:build`) starts immediately — it doesn't wait for `api:build`.
 
 ## Visual example
 
@@ -37,11 +37,11 @@ Consider a monorepo where `api` and `web` both depend on shared library builds:
 
 ```
 Level 0 (concurrent):  ui:build   shared:build
-Level 1 (concurrent):  api:build  web:build
-Level 2:               web:dev    api:dev
+Level 1 (concurrent):  api:build  web:build   # web:build starts as soon as ui:build succeeds
+Level 2:               web:dev     api:dev     # dev servers are persistent leaves
 ```
 
-`ui:build` and `shared:build` have no dependencies, so they start immediately and run in parallel. Once both finish, `api:build` and `web:build` unlock and run concurrently. Only after that level completes do `web:dev` and `api:dev` start.
+`ui:build` and `shared:build` start immediately. As soon as `ui:build` succeeds, `web:build` is scheduled even if `shared:build` is still running. `web:dev` and `api:dev` start only after their respective build dependencies succeed.
 
 ## Failure propagation
 

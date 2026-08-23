@@ -68,10 +68,10 @@ fyrer resolves the dependency graph, runs `ui:build` first, and then launches `w
 
 ## Dependency ordering with persistent tasks
 
-fyrer executes the task graph level by level — all tasks at the same graph level run concurrently, and a level must complete before the next one starts. Because persistent tasks never exit, **they block all later graph levels**.
+fyrer runs a streaming DAG: a task starts as soon as its dependencies succeed, up to the `concurrency` limit. A persistent task never exits, so any task that transitively depends on it will stay `Skipped` forever. Unrelated tasks are unaffected — they still run concurrently.
 
 This means:
-- If `web:dev` and `api:dev` have no dependencies between them, they occupy the same graph level and start concurrently. ✅
+- If `web:dev` and `api:dev` have no dependencies between them, they start concurrently once their own prerequisites are ready. ✅
 - If any task lists a persistent task in its `depends_on`, that task will wait forever and never start. ❌
 
 **Keep dev servers as leaves of the dependency graph** — nothing should depend on them.
@@ -90,7 +90,10 @@ While dev servers are running, fyrer's interactive TUI lets you inspect each one
 | `j` / `k` or `↑` / `↓` | Select the previous / next task |
 | `u` / `d` or `PageUp` / `PageDown` | Scroll the log pane |
 | `g` / `G` | Jump to top / tail (follow) the log |
+| `r` | Restart the selected task |
+| `K` (Shift+k) | Kill the selected task |
 | Mouse wheel | Scroll the log |
+| `Enter` | After run finishes, browse logs |
 
 ## Plain mode for scripts
 

@@ -4,7 +4,7 @@ sidebarTitle: "run"
 description: "fyrer run executes tasks from your fyrer.yml, resolves the dependency graph, runs tasks concurrently, and streams output to a TUI or plain log."
 ---
 
-`fyrer run` executes one or more tasks from your `fyrer.yml`, resolves the dependency graph, runs tasks concurrently at each level, and streams output to an interactive TUI or plain log mode.
+`fyrer run` executes one or more tasks from your `fyrer.yml`, resolves the dependency graph, runs tasks in streaming DAG order (as soon as dependencies finish), and streams output to an interactive TUI or plain log mode.
 
 ## Synopsis
 
@@ -59,6 +59,8 @@ fyrer run build -n
 | `u` / `d` or `PageUp` / `PageDown` | Scroll the log pane |
 | `g` | Jump to top of log |
 | `G` | Tail (follow) log |
+| `r` | Restart the selected task |
+| `K` (Shift+k) | Kill the selected task |
 | Mouse wheel | Scroll the log |
 | `Enter` | Browse task logs after run finishes |
 
