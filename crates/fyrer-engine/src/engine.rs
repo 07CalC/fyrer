@@ -133,6 +133,9 @@ pub struct Engine {
     log_router: Arc<LogRouter>,
     event_tx: broadcast::Sender<EngineEvent>,
     concurrency: usize,
+    /// Directory holding the config file; cache entries are stored and
+    /// restored relative to this.
+    workspace_root: std::path::PathBuf,
 }
 
 impl Engine {
@@ -143,6 +146,7 @@ impl Engine {
         log_router: Arc<LogRouter>,
         event_tx: broadcast::Sender<EngineEvent>,
         concurrency: Option<usize>,
+        workspace_root: Option<std::path::PathBuf>,
     ) -> Self {
         Self {
             registry: Arc::new(registry),
@@ -151,6 +155,9 @@ impl Engine {
             log_router,
             event_tx,
             concurrency: concurrency.unwrap_or_else(default_concurrency),
+            workspace_root: workspace_root.unwrap_or_else(|| {
+                std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."))
+            }),
         }
     }
 
@@ -554,8 +561,10 @@ impl Engine {
         let digest = output_digest(spec, &mut st.output_digests);
         match self.cache.need_hydration(&key, &digest) {
             Ok(false) => true,
-            Ok(true) => match self.cache.restore(&key, &spec.cwd) {
-                Ok(restored) => restored,
+            Ok(true) => match self.cache.restore(&key, &self.workspace_root) {
+                Ok(restored) => {
+                    restored
+                }
                 Err(e) => {
                     self.report_error(&spec.id, format!("failed to restore cache: {e}"));
                     false
@@ -582,7 +591,10 @@ impl Engine {
             digest,
             chrono::Utc::now().timestamp_millis() as u64,
         );
-        if let Err(e) = self.cache.save(&key, &resolve_outputs(spec), metadata) {
+        if let Err(e) = self
+            .cache
+            .save(&key, &resolve_outputs(spec), &self.workspace_root, metadata)
+        {
             self.report_error(&spec.id, format!("failed to save cache: {e}"));
         }
     }
@@ -668,7 +680,8 @@ fn build_summary(records: &HashMap<TaskId, TaskRecord>, duration: Duration) -> R
 // --- glob resolution -------------------------------------------------------
 
 /// Expand one glob relative to the task cwd. Rust's glob needs explicit file
-/// matching after a bare `/**`, so trailing-`**` patterns gain extra arms.
+/// matching after a bare `/**`, so trailing-`**` patterns gain extra arms —
+/// which can overlap, hence the dedupe.
 fn glob_with_patterns(cwd: &std::path::Path, pattern: &str) -> Vec<std::path::PathBuf> {
     let base = cwd.join(pattern).to_string_lossy().to_string();
     let mut patterns = vec![base.clone()];
@@ -676,10 +689,15 @@ fn glob_with_patterns(cwd: &std::path::Path, pattern: &str) -> Vec<std::path::Pa
         patterns.push(format!("{}/*", base.trim_end_matches("/**")));
         patterns.push(format!("{base}/**/*"));
     }
+    let mut seen = std::collections::HashSet::new();
     let mut out = Vec::new();
-    for pattern in &patterns {
-        if let Ok(paths) = glob::glob(pattern) {
-            out.extend(paths.flatten());
+    for pattern in patterns {
+        if let Ok(paths) = glob::glob(&pattern) {
+            for path in paths.flatten() {
+                if seen.insert(path.clone()) {
+                    out.push(path);
+                }
+            }
         }
     }
     out

@@ -120,8 +120,15 @@ impl App {
         }
 
         let has_watch = registry.iter().any(|(_, s)| s.watch);
+        // Everything cache-related anchors at the config file's directory,
+        // canonicalized so relative source paths strip/restore cleanly.
+        let workspace_root = workspace
+            .workspace_root
+            .canonicalize()
+            .unwrap_or_else(|_| std::env::current_dir().unwrap_or_else(|_| ".".into()));
+        let cache_dir = workspace_root.join(fyrer_cache::local::DEFAULT_CACHE_DIR);
         let cache: Arc<dyn fyrer_cache::provider::CacheProvider> =
-            Arc::new(LocalCacheProvider::new(".fyrer/cache".to_string()));
+            Arc::new(LocalCacheProvider::new(cache_dir.to_string_lossy().to_string()));
         let log_router = Arc::new(LogRouter::new(500, None));
 
         // All runs go through EngineBuilder::spawn so reporters get a control
@@ -129,7 +136,8 @@ impl App {
         let mut builder =
             EngineBuilder::new(registry.clone(), graph.clone(), cache.clone())
                 .log_router(log_router.clone())
-                .interactive(!no_tui || has_watch);
+                .interactive(!no_tui || has_watch)
+                .workspace_root(workspace_root);
         if let Some(c) = workspace.concurrency {
             builder = builder.concurrency(c);
         }

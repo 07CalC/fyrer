@@ -45,8 +45,10 @@ impl Workspace {
         let file = File::open(path).map_err(ConfigError::Io)?;
         let mut workspace: Self =
             serde_yaml::from_reader(file).map_err(ConfigError::Deserialization)?;
+        // `fyrer.yml` has parent "" — normalize to "." so joins stay sane.
         workspace.workspace_root = path
             .parent()
+            .filter(|p| !p.as_os_str().is_empty())
             .map_or_else(|| PathBuf::from("."), Path::to_path_buf);
         Ok(workspace)
     }
@@ -277,7 +279,9 @@ impl Workspace {
         use fyrer_core::{TaskId, spec::TaskSpec};
         let mut map = HashMap::new();
         for package in &self.packages {
-            let package_root = self.resolve(&self.workspace_root, &package.root);
+            let package_root = self
+                .existing_dir(&package.root)
+                .unwrap_or_else(|| self.resolve(&self.workspace_root, &package.root));
             let package_env_file = package
                 .env_file
                 .as_ref()
@@ -285,7 +289,9 @@ impl Workspace {
             for (task_name, task) in &package.tasks {
                 let id = TaskId::new(&package.name, task_name);
                 let cwd = match &task.cwd {
-                    Some(cwd) => self.resolve(&package_root, cwd),
+                    Some(cwd) => self
+                        .existing_dir_from(&package_root, cwd)
+                        .unwrap_or_else(|| self.resolve(&package_root, cwd)),
                     None => package_root.clone(),
                 };
                 let task_env_file = task
@@ -328,6 +334,19 @@ impl Workspace {
             }
             None => fyrer_core::TaskId::new(package, dep),
         }
+    }
+
+    /// Resolve a validated package root to an absolute path. Validation
+    /// guarantees existence, so canonicalize failures fall back to the join.
+    fn existing_dir(&self, root: &Path) -> Option<PathBuf> {
+        let resolved = self.resolve(&self.workspace_root, root);
+        std::fs::canonicalize(&resolved).ok()
+    }
+
+    /// Same as [`Self::existing_dir`] for task cwds under a package root.
+    fn existing_dir_from(&self, base: &Path, sub: &Path) -> Option<PathBuf> {
+        let resolved = self.resolve(base, sub);
+        std::fs::canonicalize(&resolved).ok()
     }
 
     pub fn task_graph(&self) -> Result<fyrer_core::TaskGraph, fyrer_core::graph::GraphError> {

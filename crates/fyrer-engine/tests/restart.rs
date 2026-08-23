@@ -84,7 +84,7 @@ async fn test_dynamic_scheduling_and_restart() {
     let log_router = Arc::new(LogRouter::new(100, None));
     let (event_tx, _) = broadcast::channel(1024);
 
-    let engine = Engine::new(registry.clone(), graph.clone(), cache.clone(), log_router.clone(), event_tx.clone(), Some(4));
+    let engine = Engine::new(registry.clone(), graph.clone(), cache.clone(), log_router.clone(), event_tx.clone(), Some(4), Some(tmp.path().to_path_buf()));
     let plan = RunPlan::new(vec![a_id.clone(), b_id.clone(), c_id.clone()]);
 
     // Spawn engine with handle for restart
@@ -153,7 +153,7 @@ async fn test_concurrent_independent_tasks() {
     let cache = Arc::new(LocalCacheProvider::new(tmp.path().join(".fyrer/cache").to_string_lossy().to_string()));
     let log_router = Arc::new(LogRouter::new(100, None));
     let (event_tx, _) = broadcast::channel(1024);
-    let engine = Engine::new(registry, graph, cache, log_router, event_tx, Some(4));
+    let engine = Engine::new(registry, graph, cache, log_router, event_tx, Some(4), Some(tmp.path().to_path_buf()));
     let plan = RunPlan::new(vec![id1, id2]);
     let start = std::time::Instant::now();
     let summary = engine.run_once(plan).await.unwrap();
@@ -186,7 +186,7 @@ async fn test_duration_stops_at_completion_not_shutdown() {
     let log_router = Arc::new(LogRouter::new(100, None));
     let (event_tx, _) = broadcast::channel(1024);
 
-    let engine = Engine::new(registry, graph, cache, log_router, event_tx.clone(), Some(4));
+    let engine = Engine::new(registry, graph, cache, log_router, event_tx.clone(), Some(4), Some(tmp.path().to_path_buf()));
     let (cmd_tx, cmd_rx) = tokio::sync::mpsc::channel(16);
     let handle_join = tokio::spawn(async move {
         engine.run_with_receiver(RunPlan::new(vec![TaskId::new("pkg", "t1"), TaskId::new("pkg", "t2")]), cmd_rx).await
@@ -259,7 +259,7 @@ async fn test_live_task_restart_kills_and_respawns() {
     let log_router = Arc::new(LogRouter::new(100, None));
     let (event_tx, _) = broadcast::channel(256);
 
-    let engine = Engine::new(registry, graph, cache, log_router, event_tx.clone(), Some(2));
+    let engine = Engine::new(registry, graph, cache, log_router, event_tx.clone(), Some(2), Some(tmp.path().to_path_buf()));
     let (cmd_tx, cmd_rx) = tokio::sync::mpsc::channel(16);
     let join = tokio::spawn(async move {
         engine.run_with_receiver(RunPlan::new(vec![plan_id]), cmd_rx).await

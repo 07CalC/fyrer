@@ -45,16 +45,26 @@ impl CacheMetadata {
 
 // Async trait (architecture calls for async). Use async-trait via native async fn in trait
 // (requires Rust 1.75+ with async fn in trait which we have on edition 2024).
+//
+// Path contract: all stored entries are relative to the **workspace root**
+// (the directory holding the config file), so a restore puts every file back
+// exactly where it was produced, regardless of which package/task wrote it.
 pub trait CacheProvider: Send + Sync {
     fn contains(&self, key: &str) -> bool;
-    fn restore(&self, key: &str, cwd: &std::path::Path) -> Result<bool>;
-    fn save(&self, key: &str, source: &[PathBuf], metadata: CacheMetadata) -> Result<bool>;
-    fn get_metadata(&self, key: &str) -> Result<Option<CacheMetadata>>;
-    fn need_hydration(&self, key: &str, output_digest: &str) -> Result<bool>;
-}
 
-// For backwards compat with old call sites that don't pass cwd, provide delegated impl
-#[allow(dead_code)]
-pub fn restore_legacy<P: CacheProvider>(provider: &P, key: &str) -> Result<bool> {
-    provider.restore(key, &std::env::current_dir()?)
+    /// Restore outputs for `key` into `workspace_root`.
+    fn restore(&self, key: &str, workspace_root: &std::path::Path) -> Result<bool>;
+
+    /// Archive `source` paths (absolute) as paths relative to `workspace_root`.
+    fn save(
+        &self,
+        key: &str,
+        source: &[PathBuf],
+        workspace_root: &std::path::Path,
+        metadata: CacheMetadata,
+    ) -> Result<bool>;
+
+    fn get_metadata(&self, key: &str) -> Result<Option<CacheMetadata>>;
+
+    fn need_hydration(&self, key: &str, output_digest: &str) -> Result<bool>;
 }

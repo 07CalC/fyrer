@@ -58,6 +58,7 @@ pub struct EngineBuilder {
     log_router: Arc<LogRouter>,
     concurrency: Option<usize>,
     interactive: bool,
+    workspace_root: Option<std::path::PathBuf>,
 }
 
 impl EngineBuilder {
@@ -70,7 +71,15 @@ impl EngineBuilder {
             log_router,
             concurrency: None,
             interactive: true,
+            workspace_root: None,
         }
+    }
+
+    /// Anchor for cache storage/restore — should be the directory containing
+    /// the config file.
+    pub fn workspace_root(mut self, path: std::path::PathBuf) -> Self {
+        self.workspace_root = Some(path);
+        self
     }
     pub fn concurrency(mut self, n: usize) -> Self {
         self.concurrency = Some(n);
@@ -96,6 +105,7 @@ impl EngineBuilder {
             self.log_router,
             event_tx,
             self.concurrency,
+            self.workspace_root,
         )
     }
 
@@ -108,6 +118,7 @@ impl EngineBuilder {
             self.log_router,
             event_tx.clone(),
             self.concurrency,
+            self.workspace_root,
         );
         let (cmd_tx, cmd_rx) = mpsc::channel(32);
         let interactive = self.interactive;
