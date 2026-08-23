@@ -39,7 +39,7 @@ Key rules:
 - `cmd` is required. It is run via `sh -c` on Unix or `cmd /C` on Windows, so any shell syntax is valid.
 - Task names must be unique within a package (the same name can appear in different packages).
 - Tasks can declare `inputs`, `outputs`, `depends_on`, `cache`, `persistent`, `watch`, `timeout`, `cwd`, and per-task `env` / `env_file`. `watch: true` tasks are polled every 300ms and restarted on `inputs` changes (debounced 300ms).
-- Per-task environment variables take the highest precedence in the [environment resolution order](/configuration/environment).
+- Per-task environment variables take the highest precedence in the [environment resolution order](/docs/configuration/environment).
 
 ## Task specifiers
 
