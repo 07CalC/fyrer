@@ -4,7 +4,7 @@ sidebarTitle: "Installation"
 description: "Install fyrer as a single self-contained binary via cargo install from crates.io, or build the latest commit from source using the Rust toolchain."
 ---
 
-fyrer is distributed as a single self-contained binary compiled from Rust — there are no runtimes, daemons, or additional dependencies to manage. There are five ways to get it onto your machine. Pick whichever suits your platform and workflow.
+fyrer is distributed as a single self-contained binary compiled from Rust — there are no runtimes, daemons, or additional dependencies to manage. There are five ways to get it onto your machine. Pick whichever suits your platform and workflow. Prebuilt binaries are published to [GitHub Releases](https://github.com/07calc/fyrer/releases) for Linux, macOS, and Windows (x64 \+ arm64); `cargo install` pulls from crates.io; and the npm package wraps the same verified binary.
 
 <Tabs>
   <Tab title="Install script (Unix)">
@@ -17,7 +17,7 @@ fyrer is distributed as a single self-contained binary compiled from Rust — th
     The script detects your OS and architecture, downloads the matching prebuilt binary from the latest [GitHub release](https://github.com/07calc/fyrer/releases), verifies its SHA-256 checksum, and installs it to `~/.local/bin` (or `$XDG_BIN_HOME` if set).
 
     <Note>
-      Override the install location with `FYRER_INSTALL_DIR`, or pin a specific version with `sh install.sh v0.3.3`. If the install directory isn't already on your `PATH`, the script prints the `export PATH=...` line to add to your shell profile.
+      Override the install location with `FYRER_INSTALL_DIR`, or pin a specific version with `sh install.sh v0.5.0`. If the install directory isn't already on your `PATH`, the script prints the `export PATH=...` line to add to your shell profile.
     </Note>
   </Tab>
   <Tab title="Install script (Windows)">
@@ -77,7 +77,7 @@ Confirm that `fyrer` is on your `PATH` and check the installed version:
 fyrer --version
 ```
 
-You should see output like `fyrer 0.3.3`. If the command is not found, make sure your install directory is on your `PATH`:
+You should see output like `fyrer 0.5.0`. If the command is not found, make sure your install directory is on your `PATH`:
 
 - `~/.local/bin` for the Unix install script
 - `%LOCALAPPDATA%\fyrer\bin` for the Windows install script
