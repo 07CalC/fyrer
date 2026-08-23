@@ -19,6 +19,8 @@ pub enum EngineCommand {
     Start(RunPlan),
     Restart(Vec<TaskId>),
     Kill(Vec<TaskId>),
+    /// A watched task's input files changed; restart it.
+    FilesChanged(TaskId, Vec<std::path::PathBuf>),
     Shutdown,
 }
 
@@ -47,6 +49,10 @@ pub enum EngineEvent {
     TaskLog { key: ExecKey, stream: LogStream, line: String },
     TaskCacheHit { id: TaskId },
     TaskSkipped { id: TaskId, reason: SkipReason },
+    /// Watched input files changed for a task; a restart follows.
+    FilesChanged { id: TaskId, paths: Vec<std::path::PathBuf> },
+    /// A restart was requested for the task (watch or manual). Emitted at
+    /// request time — the live attempt is being killed and will respawn.
     TaskRestarting { id: TaskId, killed_attempt: Attempt },
     DependentsStale { ids: Vec<TaskId> },
     /// All tasks reached a terminal state. Emitted immediately at completion,

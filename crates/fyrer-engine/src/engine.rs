@@ -282,63 +282,17 @@ impl Engine {
         match cmd {
             EngineCommand::Restart(ids) => {
                 for id in ids {
-                    if !st.scheduler.is_relevant(&id) {
-                        continue;
-                    }
-                    let restarted = if let Some(handle) = st.live.get(&id) {
-                        // Live attempt: mark it, kill it — the exit handler
-                        // requeues instead of failing.
-                        if let Some(rec) = st.records.get_mut(&id) {
-                            rec.restart_pending = true;
-                            rec.force_run = true;
-                        }
-                        let _ = handle.cmd_tx.send(SupCommand::Kill).await;
-                        true
-                    } else if st.requeue(&id) {
-                        if let Some(rec) = st.records.get_mut(&id) {
-                            rec.force_run = true;
-                        }
-                        let _ = self.event_tx.send(EngineEvent::TaskRestarting {
-                            id: id.clone(),
-                            killed_attempt: st
-                                .records
-                                .get(&id)
-                                .map(|r| r.last_attempt())
-                                .unwrap_or(Attempt::first()),
-                        });
-                        true
-                    } else {
-                        false
-                    };
-
-                    // Documented default policy (`stale`): finished dependents
-                    // of a restarted task are marked stale so reporters can
-                    // show that their inputs are outdated. They are not
-                    // re-run automatically.
-                    if restarted {
-                        let stale: Vec<TaskId> = st
-                            .scheduler
-                            .transitive_dependents_to_skip(&id)
-                            .into_iter()
-                            .filter(|dep| {
-                                st.records.get(dep).is_some_and(|rec| {
-                                    matches!(
-                                        rec.status,
-                                        TaskStatus::Succeeded { .. } | TaskStatus::Cached { .. }
-                                    )
-                                })
-                            })
-                            .collect();
-                        for dep in &stale {
-                            if let Some(rec) = st.records.get_mut(dep) {
-                                rec.status = TaskStatus::Stale;
-                            }
-                        }
-                        if !stale.is_empty() {
-                            let _ = self.event_tx.send(EngineEvent::DependentsStale { ids: stale });
-                        }
-                    }
+                    self.restart_one(st, &id).await;
                 }
+                self.pump_ready(run_id, st, sup_tx, semaphore).await;
+                true
+            }
+            EngineCommand::FilesChanged(id, paths) => {
+                let _ = self.event_tx.send(EngineEvent::FilesChanged {
+                    id: id.clone(),
+                    paths,
+                });
+                self.restart_one(st, &id).await;
                 self.pump_ready(run_id, st, sup_tx, semaphore).await;
                 true
             }
@@ -355,6 +309,63 @@ impl Engine {
                 false
             }
             EngineCommand::Start(_) => true,
+        }
+    }
+
+    /// Restart a single task, live or finished. Emits [`EngineEvent::TaskRestarting`]
+    /// at request time so reporters show the ↻ transition immediately.
+    async fn restart_one(&self, st: &mut RunState, id: &TaskId) {
+        if !st.scheduler.is_relevant(id) {
+            return;
+        }
+        let restarted = if let Some(handle) = st.live.get(id) {
+            // Live attempt: mark it, kill it — the exit handler requeues
+            // instead of failing.
+            if let Some(rec) = st.records.get_mut(id) {
+                rec.restart_pending = true;
+                rec.force_run = true;
+            }
+            let _ = handle.cmd_tx.send(SupCommand::Kill).await;
+            true
+        } else if st.requeue(id) {
+            if let Some(rec) = st.records.get_mut(id) {
+                rec.force_run = true;
+            }
+            true
+        } else {
+            false
+        };
+
+        if !restarted {
+            return;
+        }
+
+        let killed_attempt = st.records.get(id).map(|r| r.last_attempt()).unwrap_or(Attempt::first());
+        let _ = self.event_tx.send(EngineEvent::TaskRestarting {
+            id: id.clone(),
+            killed_attempt,
+        });
+
+        // Documented default policy (`stale`): finished dependents of a
+        // restarted task are marked stale so reporters can show that their
+        // inputs are outdated. They are not re-run automatically.
+        let stale: Vec<TaskId> = st
+            .scheduler
+            .transitive_dependents_to_skip(id)
+            .into_iter()
+            .filter(|dep| {
+                st.records.get(dep).is_some_and(|rec| {
+                    matches!(rec.status, TaskStatus::Succeeded { .. } | TaskStatus::Cached { .. })
+                })
+            })
+            .collect();
+        for dep in &stale {
+            if let Some(rec) = st.records.get_mut(dep) {
+                rec.status = TaskStatus::Stale;
+            }
+        }
+        if !stale.is_empty() {
+            let _ = self.event_tx.send(EngineEvent::DependentsStale { ids: stale });
         }
     }
 
@@ -379,13 +390,10 @@ impl Engine {
 
         if matches!(final_status, TaskStatus::Restarting { .. }) {
             // Restart requested while live: requeue for the next attempt.
+            // (TaskRestarting was already emitted at request time.)
             rec.restart_pending = false;
             rec.status = TaskStatus::Pending;
             rec.next_attempt = outcome.attempt.next();
-            let _ = self.event_tx.send(EngineEvent::TaskRestarting {
-                id: task_id.clone(),
-                killed_attempt: outcome.attempt,
-            });
             st.scheduler.push_ready(task_id.clone());
             self.pump_ready(run_id, st, sup_tx, semaphore).await;
             return;

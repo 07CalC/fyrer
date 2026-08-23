@@ -1,5 +1,7 @@
 //! Polling file watcher: watches `watch: true` tasks' input globs and sends
-//! restart commands on changes, with debouncing.
+//! [`fyrer_engine::events::EngineCommand::FilesChanged`] on changes, with
+//! debouncing. Polling (rather than inotify) keeps it cross-platform and
+//! dependency-free; mtimes of input files are compared every poll interval.
 
 use std::{
     collections::{HashMap, HashSet},
@@ -14,8 +16,8 @@ use fyrer_core::{
 use tokio::sync::mpsc;
 
 /// Simple polling watcher — checks mtimes of inputs globs every `poll_interval`.
-/// On change, sends `EngineCommand::Restart` for the affected task.
-/// This avoids the `notify` crate for now and works cross-platform.
+/// On change, sends `EngineCommand::FilesChanged` (with the changed paths) for
+/// the affected task after the debounce window.
 
 pub struct Watcher {
     registry: TaskRegistry,
@@ -58,12 +60,13 @@ impl Watcher {
         }
 
         tokio::spawn(async move {
-            // Map task -> last mtimes
+            // task -> mtime snapshot of its input files
             let mut last_mtimes: HashMap<TaskId, HashMap<PathBuf, SystemTime>> = HashMap::new();
             for (id, spec) in &watch_tasks {
                 last_mtimes.insert(id.clone(), collect_mtimes(spec));
             }
-            let mut pending: HashMap<TaskId, tokio::time::Instant> = HashMap::new();
+            // Debounce queue: task -> (fire-at instant, changed files).
+            let mut pending: HashMap<TaskId, (tokio::time::Instant, Vec<PathBuf>)> = HashMap::new();
 
             let mut interval = tokio::time::interval(self.poll_interval);
             loop {
@@ -72,30 +75,52 @@ impl Watcher {
                     let current = collect_mtimes(spec);
                     let last = last_mtimes.get(id).cloned().unwrap_or_default();
                     if current != last {
-                        pending.insert(id.clone(), tokio::time::Instant::now() + self.debounce);
+                        let changed = changed_paths(&last, &current);
                         last_mtimes.insert(id.clone(), current);
+                        let entry = pending
+                            .entry(id.clone())
+                            .or_insert_with(|| (tokio::time::Instant::now() + self.debounce, Vec::new()));
+                        entry.1.extend(changed);
                     }
                 }
-                // Check debounced pending
+                // Fire debounced changes.
                 let now = tokio::time::Instant::now();
-                let mut to_restart = Vec::new();
-                pending.retain(|id, deadline| {
-                    if *deadline <= now {
-                        to_restart.push(id.clone());
-                        false
-                    } else {
-                        true
+                let due: Vec<TaskId> = pending
+                    .iter()
+                    .filter(|(_, (deadline, _))| *deadline <= now)
+                    .map(|(id, _)| id.clone())
+                    .collect();
+                for id in due {
+                    if let Some((_, paths)) = pending.remove(&id) {
+                        let _ = cmd_tx
+                            .send(fyrer_engine::events::EngineCommand::FilesChanged(id, paths))
+                            .await;
                     }
-                });
-                for id in to_restart {
-                    eprintln!("[watch] file change detected for {}, restarting", id);
-                    let _ = cmd_tx
-                        .send(fyrer_engine::events::EngineCommand::Restart(vec![id]))
-                        .await;
                 }
             }
         })
     }
+}
+
+/// Files whose mtime appeared, disappeared or moved forward between the two
+/// snapshots.
+fn changed_paths(
+    last: &HashMap<PathBuf, SystemTime>,
+    current: &HashMap<PathBuf, SystemTime>,
+) -> Vec<PathBuf> {
+    let mut changed = Vec::new();
+    for (path, mtime) in current {
+        match last.get(path) {
+            Some(prev) if prev == mtime => {}
+            _ => changed.push(path.clone()),
+        }
+    }
+    for path in last.keys() {
+        if !current.contains_key(path) {
+            changed.push(path.clone());
+        }
+    }
+    changed
 }
 
 fn collect_mtimes(spec: &TaskSpec) -> HashMap<PathBuf, SystemTime> {

@@ -292,21 +292,15 @@ impl TuiWorker {
             }
             EngineEvent::TaskReady(_) => {}
 
-            EngineEvent::TaskStarted { id, attempt, .. } => {
+            EngineEvent::TaskStarted { id, .. } => {
                 // A (re)start means work is happening again — leave any
-                // summary/post-run view and go back to live logs.
+                // summary/post-run view, drop the ↻ restarting marker and go
+                // back to the live ● running state.
                 if !matches!(self.mode, TuiMode::Running) {
                     self.mode = TuiMode::Running;
                 }
                 self.register_task(id.clone(), TuiTaskStatus::Running);
-                self.set_status(
-                    &id,
-                    if attempt.0 > 1 {
-                        TuiTaskStatus::Restarting
-                    } else {
-                        TuiTaskStatus::Running
-                    },
-                );
+                self.set_status(&id, TuiTaskStatus::Running);
                 self.dirty = true;
             }
 
@@ -359,6 +353,22 @@ impl TuiWorker {
                 self.push_system_log(&id, format!("— skipped ({why})"));
                 self.dirty = true;
             }
+            EngineEvent::FilesChanged { id, paths } => {
+                // Show which files triggered the restart (cap the list).
+                let names: Vec<String> =
+                    paths.iter().take(3).map(|p| short_name(p)).collect();
+                let mut msg = match names.len() {
+                    0 => "input files changed".to_string(),
+                    _ => format!("changed: {}", names.join(", ")),
+                };
+                if paths.len() > 3 {
+                    msg.push_str(&format!(" +{} more", paths.len() - 3));
+                }
+                self.set_status(&id, TuiTaskStatus::Restarting);
+                self.push_system_log(&id, format!("✎ {msg}"));
+                self.dirty = true;
+            }
+
             EngineEvent::TaskRestarting { id, killed_attempt } => {
                 if !matches!(self.mode, TuiMode::Running) {
                     self.mode = TuiMode::Running;
@@ -870,6 +880,13 @@ impl TuiWorker {
 
 fn bold_span(text: &'static str, color: Color) -> Span<'static> {
     Span::styled(text, Style::default().fg(color).add_modifier(Modifier::BOLD))
+}
+
+/// Last path segment for compact display in log lines.
+fn short_name(path: &std::path::Path) -> String {
+    path.file_name()
+        .map(|n| n.to_string_lossy().to_string())
+        .unwrap_or_else(|| path.to_string_lossy().to_string())
 }
 
 fn dim_span(text: &'static str, color: Color) -> Span<'static> {
