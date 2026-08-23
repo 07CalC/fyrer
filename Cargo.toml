@@ -12,14 +12,14 @@ repository = "https://github.com/07calc/fyrer"
 # Internal crates: path + version so `cargo publish` works against crates.io
 # (path-only dependencies are rejected when publishing).
 [workspace.dependencies]
-fyrer-core = { path = "crates/fyrer-core", version = "0.3.3" }
-fyrer-process = { path = "crates/fyrer-process", version = "0.3.3" }
-fyrer-log = { path = "crates/fyrer-log", version = "0.3.3" }
-fyrer-config = { path = "crates/fyrer-config", version = "0.3.3" }
-fyrer-cache = { path = "crates/fyrer-cache", version = "0.3.3" }
-fyrer-engine = { path = "crates/fyrer-engine", version = "0.3.3" }
-fyrer-watch = { path = "crates/fyrer-watch", version = "0.3.3" }
-fyrer-ui = { path = "crates/fyrer-ui", version = "0.3.3" }
+fyrer-core = { path = "crates/fyrer-core" }
+fyrer-process = { path = "crates/fyrer-process" }
+fyrer-log = { path = "crates/fyrer-log" }
+fyrer-config = { path = "crates/fyrer-config" }
+fyrer-cache = { path = "crates/fyrer-cache" }
+fyrer-engine = { path = "crates/fyrer-engine" }
+fyrer-watch = { path = "crates/fyrer-watch" }
+fyrer-ui = { path = "crates/fyrer-ui" }
 
 [workspace.lints.clippy]
 all = "warn"

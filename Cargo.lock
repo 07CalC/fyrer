@@ -620,7 +620,7 @@ dependencies = [
 
 [[package]]
 name = "fyrer"
-version = "0.3.3"
+version = "0.4.0"
 dependencies = [
  "anyhow",
  "clap",
@@ -637,7 +637,7 @@ dependencies = [
 
 [[package]]
 name = "fyrer-cache"
-version = "0.3.3"
+version = "0.4.0"
 dependencies = [
  "anyhow",
  "blake3",
@@ -654,7 +654,7 @@ dependencies = [
 
 [[package]]
 name = "fyrer-config"
-version = "0.3.3"
+version = "0.4.0"
 dependencies = [
  "anyhow",
  "fyrer-core",
@@ -668,7 +668,7 @@ dependencies = [
 
 [[package]]
 name = "fyrer-core"
-version = "0.3.3"
+version = "0.4.0"
 dependencies = [
  "serde",
  "thiserror 1.0.69",
@@ -676,7 +676,7 @@ dependencies = [
 
 [[package]]
 name = "fyrer-engine"
-version = "0.3.3"
+version = "0.4.0"
 dependencies = [
  "anyhow",
  "blake3",
@@ -694,7 +694,7 @@ dependencies = [
 
 [[package]]
 name = "fyrer-log"
-version = "0.3.3"
+version = "0.4.0"
 dependencies = [
  "anyhow",
  "chrono",
@@ -705,7 +705,7 @@ dependencies = [
 
 [[package]]
 name = "fyrer-process"
-version = "0.3.3"
+version = "0.4.0"
 dependencies = [
  "anyhow",
  "fyrer-core",
@@ -715,7 +715,7 @@ dependencies = [
 
 [[package]]
 name = "fyrer-ui"
-version = "0.3.3"
+version = "0.4.0"
 dependencies = [
  "ansi-to-tui",
  "anyhow",
@@ -731,7 +731,7 @@ dependencies = [
 
 [[package]]
 name = "fyrer-watch"
-version = "0.3.3"
+version = "0.4.0"
 dependencies = [
  "anyhow",
  "fyrer-core",
@@ -2273,7 +2273,7 @@ dependencies = [
 
 [[package]]
 name = "xtask"
-version = "0.3.3"
+version = "0.4.0"
 
 [[package]]
 name = "zmij"
