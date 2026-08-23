@@ -1,0 +1,12 @@
+[package]
+name = "fyrer-core"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Core domain model for fyrer — no IO"
+repository.workspace = true
+
+[dependencies]
+serde = { version = "1.0", features = ["derive"] }
+thiserror = "1.0"

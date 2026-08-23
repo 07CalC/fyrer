@@ -1,0 +1,15 @@
+[package]
+name = "fyrer-log"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Log routing for fyrer"
+repository.workspace = true
+
+[dependencies]
+fyrer-core.workspace = true
+anyhow = "1.0"
+tokio = { version = "1.30", features = ["full"] }
+chrono = "0.4"
+serde = { version = "1.0", features = ["derive"] }
