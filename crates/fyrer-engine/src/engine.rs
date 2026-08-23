@@ -53,6 +53,9 @@ struct TaskRecord {
     /// Set when a Restart command killed the live attempt; the exit handler
     /// then turns a kill/timeout into a requeue instead of a failure.
     restart_pending: bool,
+    /// Set by Restart commands: the next scheduling of this task must
+    /// actually execute, even if the cache has a matching entry.
+    force_run: bool,
 }
 
 impl TaskRecord {
@@ -62,6 +65,7 @@ impl TaskRecord {
             attempts: Vec::new(),
             next_attempt: Attempt::first(),
             restart_pending: false,
+            force_run: false,
         }
     }
 
@@ -274,14 +278,19 @@ impl Engine {
                     if !st.scheduler.is_relevant(&id) {
                         continue;
                     }
-                    if let Some(handle) = st.live.get(&id) {
+                    let restarted = if let Some(handle) = st.live.get(&id) {
                         // Live attempt: mark it, kill it — the exit handler
                         // requeues instead of failing.
                         if let Some(rec) = st.records.get_mut(&id) {
                             rec.restart_pending = true;
+                            rec.force_run = true;
                         }
                         let _ = handle.cmd_tx.send(SupCommand::Kill).await;
+                        true
                     } else if st.requeue(&id) {
+                        if let Some(rec) = st.records.get_mut(&id) {
+                            rec.force_run = true;
+                        }
                         let _ = self.event_tx.send(EngineEvent::TaskRestarting {
                             id: id.clone(),
                             killed_attempt: st
@@ -290,6 +299,37 @@ impl Engine {
                                 .map(|r| r.last_attempt())
                                 .unwrap_or(Attempt::first()),
                         });
+                        true
+                    } else {
+                        false
+                    };
+
+                    // Documented default policy (`stale`): finished dependents
+                    // of a restarted task are marked stale so reporters can
+                    // show that their inputs are outdated. They are not
+                    // re-run automatically.
+                    if restarted {
+                        let stale: Vec<TaskId> = st
+                            .scheduler
+                            .transitive_dependents_to_skip(&id)
+                            .into_iter()
+                            .filter(|dep| {
+                                st.records.get(dep).is_some_and(|rec| {
+                                    matches!(
+                                        rec.status,
+                                        TaskStatus::Succeeded { .. } | TaskStatus::Cached { .. }
+                                    )
+                                })
+                            })
+                            .collect();
+                        for dep in &stale {
+                            if let Some(rec) = st.records.get_mut(dep) {
+                                rec.status = TaskStatus::Stale;
+                            }
+                        }
+                        if !stale.is_empty() {
+                            let _ = self.event_tx.send(EngineEvent::DependentsStale { ids: stale });
+                        }
                     }
                 }
                 self.pump_ready(run_id, st, sup_tx, semaphore).await;
@@ -432,7 +472,12 @@ impl Engine {
                 }
             }
 
-            if spec.cacheable && self.try_cache_hit(&spec, st).await {
+            let force_run = st
+                .records
+                .get(&task_id)
+                .is_some_and(|rec| rec.force_run);
+
+            if spec.cacheable && !force_run && self.try_cache_hit(&spec, st).await {
                 let Some(rec) = st.records.get_mut(&task_id) else {
                     continue;
                 };
@@ -443,6 +488,12 @@ impl Engine {
                 // A hit counts as success for dependents.
                 st.scheduler.on_success(&task_id);
                 continue;
+            }
+            // Either not cacheable or an explicit restart: run for real.
+            if force_run {
+                if let Some(rec) = st.records.get_mut(&task_id) {
+                    rec.force_run = false;
+                }
             }
 
             // No free permit? Put the task back and wait for an exit.
@@ -577,15 +628,13 @@ fn classify_exit(outcome: &TaskOutcome, restart_pending: bool) -> TaskStatus {
         ExitReason::Success(0) => TaskStatus::Succeeded {
             attempt: outcome.attempt,
         },
-        ExitReason::Timeout | ExitReason::Killed if restart_pending => {
+        // A deliberate kill (restart request) arrives as Timeout/Killed on the
+        // control path or Signal(SIGKILL) from the process-group kill.
+        ExitReason::Timeout | ExitReason::Killed | ExitReason::Signal(_)
+            if restart_pending =>
+        {
             TaskStatus::Restarting { from: outcome.attempt }
         }
-        ExitReason::Success(_) | ExitReason::Failure(_) => TaskStatus::Failed {
-            attempt: outcome.attempt,
-        },
-        ExitReason::Signal(_) | ExitReason::SpawnError(_) => TaskStatus::Failed {
-            attempt: outcome.attempt,
-        },
         _ => TaskStatus::Failed {
             attempt: outcome.attempt,
         },

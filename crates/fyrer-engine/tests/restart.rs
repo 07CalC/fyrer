@@ -226,3 +226,94 @@ async fn test_duration_stops_at_completion_not_shutdown() {
         summary.duration
     );
 }
+
+#[tokio::test]
+async fn test_live_task_restart_kills_and_respawns() {
+    // A long-running task gets Restart while LIVE: it must be killed and
+    // respawned as attempt 2 — not marked failed.
+    let tmp = tempfile::tempdir().unwrap();
+    let cwd = tmp.path().join("p");
+    std::fs::create_dir_all(&cwd).unwrap();
+
+    let id = TaskId::new("pkg", "server");
+    let plan_id = id.clone();
+    let spec = Arc::new(TaskSpec::new(
+        id.clone(),
+        HashMap::new(),
+        false,
+        false,
+        true, // persistent-ish long runner
+        None,
+        cwd,
+        "echo up && sleep 30".to_string(),
+        vec![],
+        vec![],
+        vec![],
+        vec![],
+    ));
+    let mut map = HashMap::new();
+    map.insert(id.clone(), spec);
+    let registry = TaskRegistry::new(map);
+    let graph = TaskGraph::from_specs(registry.iter().map(|(tid, s)| (tid.clone(), s.depends_on.clone()))).unwrap();
+    let cache = Arc::new(LocalCacheProvider::new(tmp.path().join(".fyrer/cache").to_string_lossy().to_string()));
+    let log_router = Arc::new(LogRouter::new(100, None));
+    let (event_tx, _) = broadcast::channel(256);
+
+    let engine = Engine::new(registry, graph, cache, log_router, event_tx.clone(), Some(2));
+    let (cmd_tx, cmd_rx) = tokio::sync::mpsc::channel(16);
+    let join = tokio::spawn(async move {
+        engine.run_with_receiver(RunPlan::new(vec![plan_id]), cmd_rx).await
+    });
+
+    let mut rx = event_tx.subscribe();
+    let cmd_for_watcher = cmd_tx.clone();
+
+    // Watcher: once attempt 2 starts, shut the engine down.
+    let watcher = tokio::spawn(async move {
+        let mut saw_first_start = false;
+        loop {
+            match rx.recv().await {
+                Ok(EngineEvent::TaskStarted { attempt, .. }) => {
+                    if attempt.0 == 1 {
+                        saw_first_start = true;
+                    }
+                    if attempt.0 == 2 && saw_first_start {
+                        break;
+                    }
+                }
+                Ok(EngineEvent::TaskFinished { final_status, .. }) => {
+                    panic!("task must not finish during live restart, got {final_status:?}");
+                }
+                Err(broadcast::error::RecvError::Closed) => break,
+                _ => {}
+            }
+        }
+        let _ = cmd_for_watcher.send(EngineCommand::Shutdown).await;
+    });
+
+    // Wait until attempt 1 is actually running.
+    let mut started_rx = event_tx.subscribe();
+    loop {
+        match started_rx.recv().await {
+            Ok(EngineEvent::TaskStarted { .. }) => break,
+            Err(broadcast::error::RecvError::Closed) => panic!("engine died before start"),
+            _ => {}
+        }
+    }
+
+    // Restart while LIVE.
+    cmd_tx.send(EngineCommand::Restart(vec![id.clone()])).await.unwrap();
+
+    tokio::time::timeout(std::time::Duration::from_secs(10), watcher)
+        .await
+        .expect("restart did not respawn within timeout")
+        .unwrap();
+
+    let _ = cmd_tx.send(EngineCommand::Shutdown).await;
+    let summary = tokio::time::timeout(std::time::Duration::from_secs(10), join)
+        .await
+        .unwrap()
+        .unwrap()
+        .unwrap();
+    println!("summary: {summary:?}");
+}
