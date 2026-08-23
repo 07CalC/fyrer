@@ -4,11 +4,12 @@ name: Release
 # version was bumped — the version in [workspace.package].version (root
 # Cargo.toml) is the single source of truth. To cut a release:
 #
-#   cargo xtask bump 0.4.1   # bumps Cargo.toml + npm/package.json
-#   git commit -m "chore: release v0.4.1" && open/merge PR
+#   cargo xtask bump 0.5.1   # bumps Cargo.toml + npm/package.json
+#   git commit -m "chore: release v0.5.1" && open/merge PR
 #
-# On merge, this workflow builds all targets and publishes to crates.io,
-# npm, and GitHub Releases. If tag v<version> already exists, it no-ops.
+# On merge, this workflow builds all targets and publishes to crates.io
+# and GitHub Releases. If tag v<version> already exists, it no-ops.
+# npm publishing is currently disabled (not yet supported).
 
 on:
   push:
@@ -159,23 +160,24 @@ jobs:
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
 
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          registry-url: https://registry.npmjs.org
-
-      - name: Verify npm package version
-        working-directory: npm
-        env:
-          VERSION: ${{ needs.version.outputs.version }}
-        run: |
-          test "$(node -p 'require("./package.json").version')" = "${VERSION}"
-
-      - name: Publish npm
-        working-directory: npm
-        run: npm publish
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      # npm publishing disabled — not yet supported
+      # - uses: actions/setup-node@v4
+      #   with:
+      #     node-version: 22
+      #     registry-url: https://registry.npmjs.org
+      #
+      # - name: Verify npm package version
+      #   working-directory: npm
+      #   env:
+      #     VERSION: ${{ needs.version.outputs.version }}
+      #   run: |
+      #     test "$(node -p 'require("./package.json").version')" = "${VERSION}"
+      #
+      # - name: Publish npm
+      #   working-directory: npm
+      #   run: npm publish
+      #   env:
+      #     NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       # Created last so a failed publish never leaves a blocking v<version>
       # tag behind; the next main push retries cleanly.

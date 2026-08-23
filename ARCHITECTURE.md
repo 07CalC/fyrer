@@ -585,7 +585,46 @@ Async `CacheProvider`, restore-into-cwd fix, memoized hash tree.
 
 ---
 
-## 13. Risks & notes
+## 13. Release & versioning
+
+Single source of truth is `[workspace.package].version` in the root `Cargo.toml`
+(currently `0.5.0`). All workspace members inherit it via `version.workspace = true`,
+and the internal path dependencies under `[workspace.dependencies]` carry matching
+`version = "…"` pins so `cargo publish -p <crate>` produces a registry-resolvable
+manifest (path-only deps are rejected at publish time).
+
+Bumping is mechanical:
+
+```bash
+cargo xtask bump 0.5.1   # rewrites Cargo.toml version, re-pins the 8 internal
+                         # dependencies, and syncs npm/package.json
+```
+
+The GitHub workflow (`.github/workflows/release.yml`) is triggered on pushes to
+`main` — in practice, PR merges. It first resolves the workspace version and
+checks `git ls-remote --tags origin v<version>`; if the tag already exists the
+run no-ops. Otherwise it:
+
+1. Builds `fyrer` for 6 targets (Linux / macOS / Windows × x64 / arm64) and
+   uploads the binaries as artifacts.
+2. Publishes to crates.io via `cargo xtask publish`, which walks the DAG
+   `core → {process,log,config,cache} → engine → {watch,ui} → fyrer`, skipping
+   already-published versions and retrying on sparse-index propagation lag. The
+   micro-crates must be published because they are dependencies of the `fyrer`
+   crate on the registry.
+3. Creates the GitHub Release `v<version>` with all binaries and `*.sha256`
+   checksums — this step runs **last** so a failed registry publish never leaves
+   a blocking tag behind; the next `main` push retries cleanly.
+
+Crates.io rate-limits *new* crate names (≈1 per 10 min). Bootstrapping the
+workspace therefore takes ~90 min in CI; subsequent releases publish new
+*versions* of existing crates and are not subject to that limit.
+
+Local dry-runs: `cargo xtask publish --dry-run --allow-dirty`.
+
+---
+
+## 14. Risks & notes
 
 - **TUI rewrite scope**: the ratatui worker already models `Restarting`; it
   needs `Stale` + attempt badges. Moderate, isolated to `crates/fyrer-ui`.

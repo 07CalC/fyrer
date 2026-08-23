@@ -40,7 +40,7 @@ acme-corp/
 - **`timeout`**: `cli:timeout-demo` is killed 2s in.
 - **`watch` / `persistent`** flags are declared on long-running tasks.
 
-> Note: in fyrer 0.3.0 the `watch`/`persistent` flags are part of the config
+> Note: in fyrer 0.5.0 the `watch`/`persistent` flags are part of the config
 > schema and shown by `list`/`plan`, but the auto-restart watcher is not yet
 > wired into the executor.
 

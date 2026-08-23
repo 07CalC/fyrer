@@ -20,7 +20,7 @@ curl -fsSL https://raw.githubusercontent.com/07calc/fyrer/main/install.sh | sh
 The script downloads the prebuilt binary for your OS/architecture from the
 latest GitHub release, verifies its SHA-256 checksum, and installs it to
 `~/.local/bin` (override with `FYRER_INSTALL_DIR`, or pin a version with
-`sh install.sh v0.3.0`).
+`sh install.sh v0.5.0`).
 
 ### Install script (Windows, PowerShell)
 
@@ -35,15 +35,6 @@ Installs `fyrer.exe` to `$HOME\.local\bin` (override with `-InstallDir`).
 ```bash
 cargo install fyrer
 ```
-
-### Install using npm
-
-```bash
-npm install --global fyrer
-```
-
-The npm package downloads and verifies the native binary for Linux, macOS, or
-Windows on x64 or ARM64 during installation.
 
 ### Build from source
 
@@ -215,6 +206,35 @@ prefixed, colorized log output instead.
 - The `watch` flag and the `FileChanged`/`RestartRequest` events are part of
   the config schema and UI, but the file-watcher that triggers automatic
   restarts is not wired up yet.
+
+## Releasing
+
+Releases are triggered by merging to `main`. The version in `[workspace.package].version` (root `Cargo.toml`) is the single source of truth — `npm/package.json` and the `version` pins in `[workspace.dependencies]` are kept in sync by `cargo xtask bump`.
+
+```bash
+# 1. bump versions
+cargo xtask bump 0.5.1
+
+# 2. commit + PR -> merge to main
+git commit -am "chore: release v0.5.1"
+gh pr create --fill
+# (or push a branch and merge via GitHub UI)
+```
+
+On merge, `.github/workflows/release.yml`:
+
+1. Checks whether tag `v0.5.1` already exists — if so, the run no-ops.
+2. Otherwise builds the `fyrer` binary for 6 targets (Linux / macOS / Windows × x64 / arm64).
+3. Publishes crates to crates.io in dependency order via `cargo xtask publish` (skips already-published versions; retries on sparse-index lag).
+4. Creates the GitHub Release `v0.5.1` with the binaries and `*.sha256` checksums (tag is created last, so a failed publish never leaves a blocking tag).
+
+For a local dry-run without publishing:
+
+```bash
+cargo xtask publish --dry-run --allow-dirty
+```
+
+Note on the first publish of new crate names: crates.io rate-limits new crates (~1 per 10 min). The initial bootstrap of the 9 workspace crates may take ~90 min in CI; subsequent releases publish new *versions* of existing crates and are not subject to that limit.
 
 ## License
 

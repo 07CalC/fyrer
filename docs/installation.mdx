@@ -1,10 +1,10 @@
 ---
-title: "Installing fyrer: Cargo Install or Build from Source"
+title: "Installing fyrer"
 sidebarTitle: "Installation"
-description: "Install fyrer as a single self-contained binary via cargo install from crates.io, or build the latest commit from source using the Rust toolchain."
+description: "Install fyrer as a single self-contained binary — via install script, cargo install from crates.io, or build from source."
 ---
 
-fyrer is distributed as a single self-contained binary compiled from Rust — there are no runtimes, daemons, or additional dependencies to manage. There are five ways to get it onto your machine. Pick whichever suits your platform and workflow.
+fyrer is distributed as a single self-contained binary compiled from Rust — there are no runtimes, daemons, or additional dependencies to manage. There are four ways to get it onto your machine. Pick whichever suits your platform and workflow. Prebuilt binaries are published to [GitHub Releases](https://github.com/07calc/fyrer/releases) for Linux, macOS, and Windows (x64 + arm64); `cargo install` pulls from crates.io.
 
 <Tabs>
   <Tab title="Install script (Unix)">
@@ -17,7 +17,7 @@ fyrer is distributed as a single self-contained binary compiled from Rust — th
     The script detects your OS and architecture, downloads the matching prebuilt binary from the latest [GitHub release](https://github.com/07calc/fyrer/releases), verifies its SHA-256 checksum, and installs it to `~/.local/bin` (or `$XDG_BIN_HOME` if set).
 
     <Note>
-      Override the install location with `FYRER_INSTALL_DIR`, or pin a specific version with `sh install.sh v0.3.3`. If the install directory isn't already on your `PATH`, the script prints the `export PATH=...` line to add to your shell profile.
+      Override the install location with `FYRER_INSTALL_DIR`, or pin a specific version with `sh install.sh v0.5.0`. If the install directory isn't already on your `PATH`, the script prints the `export PATH=...` line to add to your shell profile.
     </Note>
   </Tab>
   <Tab title="Install script (Windows)">
@@ -32,15 +32,6 @@ fyrer is distributed as a single self-contained binary compiled from Rust — th
     <Note>
       Restart your terminal after the script finishes so the `PATH` change takes effect.
     </Note>
-  </Tab>
-  <Tab title="npm">
-    **Prerequisites:** Node.js 14 or later.
-
-    ```bash
-    npm install --global fyrer
-    ```
-
-    The npm package downloads and verifies the native fyrer binary for your platform during installation. It supports Linux, macOS, and Windows on x64 and ARM64.
   </Tab>
   <Tab title="cargo install">
     **Prerequisites:** You must have the Rust toolchain installed. If you don't have it yet, install it from [rustup.rs](https://rustup.rs).
@@ -77,11 +68,10 @@ Confirm that `fyrer` is on your `PATH` and check the installed version:
 fyrer --version
 ```
 
-You should see output like `fyrer 0.3.3`. If the command is not found, make sure your install directory is on your `PATH`:
+You should see output like `fyrer 0.5.0`. If the command is not found, make sure your install directory is on your `PATH`:
 
 - `~/.local/bin` for the Unix install script
 - `%LOCALAPPDATA%\fyrer\bin` for the Windows install script
-- your npm global `bin` directory for npm installs
 - `~/.cargo/bin` for `cargo install` and source builds
 
 <Note>

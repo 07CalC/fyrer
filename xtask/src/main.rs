@@ -7,6 +7,10 @@
 //!
 //! `publish` pushes member crates to crates.io in dependency order:
 //! core -> {process, log, config, cache} -> engine -> {watch, ui} -> fyrer.
+//!
+//! Releases are triggered by merging to `main` (see `.github/workflows/release.yml`):
+//! bump the version with `cargo xtask bump <version>`, merge the PR, and the
+//! workflow builds, publishes to crates.io, and creates the GitHub Release.
 use std::{
     env,
     process::{Command, exit},
@@ -56,9 +60,19 @@ USAGE:
   cargo xtask publish [--dry-run] [--allow-dirty]
       Publish all workspace crates to crates.io in dependency order.
       Already-published versions are skipped automatically.
+      In CI this is invoked by the release workflow; locally use it
+      for dry-runs or manual recovery.
 
   cargo xtask bump <version>
-      Set [workspace.package].version and sync npm/package.json."
+      Set [workspace.package].version and sync npm/package.json
+      (including [workspace.dependencies] version pins).
+
+RELEASE FLOW:
+  cargo xtask bump 0.5.1
+  git commit -am \"chore: release v0.5.1\" && gh pr create --fill
+  # merge the PR -> .github/workflows/release.yml builds, publishes
+  # to crates.io and creates the GitHub Release v0.5.1.
+  # The workflow no-ops if the version tag already exists."
     );
 }
 
@@ -118,8 +132,10 @@ fn publish(args: &[&str]) {
     }
     println!("== done ==");
     if !dry {
-        println!("\nnext steps:");
-        println!("  git tag v<version> && git push --tags   # triggers binary release CI");
+        println!("\nnext steps (CI handles this automatically):");
+        println!("  cargo xtask bump <version>  # bump Cargo.toml + npm/package.json");
+        println!("  git commit -am \"chore: release v<version>\" && open PR -> merge to main");
+        println!("  # .github/workflows/release.yml builds + publishes + creates tag v<version>");
     }
 }
 
@@ -205,9 +221,11 @@ fn bump(args: &[&str]) {
     });
 
     println!("bumped to {new_version}");
-    println!("\nremaining manual steps:");
+    println!("\nnext steps:");
     println!("  - update version references in install.sh / install.ps1 if pinned");
-    println!("  - commit, then: cargo xtask publish");
+    println!("  - commit and open a PR; merging to main triggers the release workflow");
+    println!("    (builds binaries, publishes to crates.io, creates GitHub Release)");
+    println!("  - for a local dry-run: cargo xtask publish --dry-run --allow-dirty");
 }
 
 // --- helpers ---------------------------------------------------------------
