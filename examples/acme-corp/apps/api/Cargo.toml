@@ -5,3 +5,5 @@ edition = "2021"
 
 [dependencies]
 shared = { path = "../../packages/shared" }
+
+[workspace]
