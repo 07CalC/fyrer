@@ -2,6 +2,9 @@ use std::{collections::HashMap, time::Duration};
 
 use ansi_to_tui::IntoText;
 use anyhow::Result;
+use crossterm::event::{
+    Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers, MouseEventKind,
+};
 use ratatui::{
     Terminal,
     backend::CrosstermBackend,
@@ -252,17 +255,17 @@ impl TuiWorker {
             //    even while the engine is quiet.
             while crossterm::event::poll(Duration::from_millis(20))? {
                 match crossterm::event::read()? {
-                    crossterm::event::Event::Key(key) => {
+                    Event::Key(key) => {
                         // Ignore Release/Repeat to avoid double-firing on some terminals
-                        if key.kind == crossterm::event::KeyEventKind::Press
+                        if key.kind == KeyEventKind::Press
                             && self.handle_key(key)?
                         {
                             return Ok(());
                         }
                     }
-                    crossterm::event::Event::Mouse(mouse) => match mouse.kind {
-                        crossterm::event::MouseEventKind::ScrollUp => self.scroll_up_lines(3),
-                        crossterm::event::MouseEventKind::ScrollDown => self.scroll_down_lines(3),
+                    Event::Mouse(mouse) => match mouse.kind {
+                        MouseEventKind::ScrollUp => self.scroll_up_lines(3),
+                        MouseEventKind::ScrollDown => self.scroll_down_lines(3),
                         _ => continue,
                     },
                     crossterm::event::Event::Resize(_, _) => {}
@@ -290,6 +293,11 @@ impl TuiWorker {
             EngineEvent::TaskReady(_) => {}
 
             EngineEvent::TaskStarted { id, attempt, .. } => {
+                // A (re)start means work is happening again — leave any
+                // summary/post-run view and go back to live logs.
+                if !matches!(self.mode, TuiMode::Running) {
+                    self.mode = TuiMode::Running;
+                }
                 self.register_task(id.clone(), TuiTaskStatus::Running);
                 self.set_status(
                     &id,
@@ -352,6 +360,9 @@ impl TuiWorker {
                 self.dirty = true;
             }
             EngineEvent::TaskRestarting { id, killed_attempt } => {
+                if !matches!(self.mode, TuiMode::Running) {
+                    self.mode = TuiMode::Running;
+                }
                 self.set_status(&id, TuiTaskStatus::Restarting);
                 self.push_system_log(&id, format!("↻ attempt {} killed — restarting", killed_attempt));
                 self.dirty = true;
@@ -363,9 +374,24 @@ impl TuiWorker {
                 self.dirty = true;
             }
 
+            // All tasks terminal — show the summary popup right away. This is
+            // what the user sees while the engine parks in interactive mode;
+            // RunFinished only arrives later, when the engine actually exits.
+            EngineEvent::RunCompleted(summary) => {
+                if !matches!(self.mode, TuiMode::PostRun) {
+                    self.mode = TuiMode::Summary(summary);
+                    self.dirty = true;
+                }
+            }
+
             EngineEvent::RunFinished(summary) => {
-                self.mode = TuiMode::Summary(summary);
-                self.dirty = true;
+                // Engine exited. Only surface this if we never showed
+                // RunCompleted (e.g. mid-run shutdown); never clobber a
+                // summary/post-run view the user is already looking at.
+                if matches!(self.mode, TuiMode::Running) {
+                    self.mode = TuiMode::Summary(summary);
+                    self.dirty = true;
+                }
             }
 
             EngineEvent::NonFatalError { task_id, error } => {
@@ -384,9 +410,7 @@ impl TuiWorker {
         Ok(false)
     }
 
-    fn handle_key(&mut self, key: crossterm::event::KeyEvent) -> Result<bool> {
-        use crossterm::event::{KeyCode, KeyModifiers};
-
+    fn handle_key(&mut self, key: KeyEvent) -> Result<bool> {
         match key.code {
             KeyCode::Char('q') | KeyCode::Char('Q') => {
                 self.request_shutdown();

@@ -8,10 +8,10 @@ description = "Engine orchestration for fyrer — supervisor ownership + dynamic
 repository.workspace = true
 
 [dependencies]
-fyrer-core = { path = "../fyrer-core" }
-fyrer-cache = { path = "../fyrer-cache" }
-fyrer-log = { path = "../fyrer-log" }
-fyrer-process = { path = "../fyrer-process" }
+fyrer-core.workspace = true
+fyrer-cache.workspace = true
+fyrer-log.workspace = true
+fyrer-process.workspace = true
 anyhow = "1.0"
 tokio = { version = "1.30", features = ["full"] }
 serde = { version = "1.0", features = ["derive"] }

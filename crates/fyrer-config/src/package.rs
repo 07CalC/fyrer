@@ -2,9 +2,8 @@ use std::{collections::HashMap, path::PathBuf};
 
 use serde::Deserialize;
 
-use crate::{cache::CacheConfig, task::TaskConfig};
-
-pub type EnvMap = HashMap<String, String>;
+pub use crate::env::EnvMap;
+use crate::task::TaskConfig;
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]

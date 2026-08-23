@@ -57,6 +57,7 @@ pub struct EngineBuilder {
     cache: Arc<dyn CacheProvider>,
     log_router: Arc<LogRouter>,
     concurrency: Option<usize>,
+    interactive: bool,
 }
 
 impl EngineBuilder {
@@ -68,6 +69,7 @@ impl EngineBuilder {
             cache,
             log_router,
             concurrency: None,
+            interactive: true,
         }
     }
     pub fn concurrency(mut self, n: usize) -> Self {
@@ -76,6 +78,13 @@ impl EngineBuilder {
     }
     pub fn log_router(mut self, r: Arc<LogRouter>) -> Self {
         self.log_router = r;
+        self
+    }
+    /// Interactive engines keep serving restart/kill commands after the run
+    /// completes (TUI browsing, watch mode). Non-interactive ones exit as soon
+    /// as every task reaches a terminal state.
+    pub fn interactive(mut self, v: bool) -> Self {
+        self.interactive = v;
         self
     }
     pub fn build(self) -> Engine {
@@ -101,7 +110,9 @@ impl EngineBuilder {
             self.concurrency,
         );
         let (cmd_tx, cmd_rx) = mpsc::channel(32);
-        let join = tokio::spawn(async move { engine.run_with_receiver(plan, cmd_rx).await });
+        let interactive = self.interactive;
+        let join =
+            tokio::spawn(async move { engine.run_with_receiver_inner(plan, cmd_rx, interactive).await });
         EngineHandle {
             cmd_tx,
             event_tx,

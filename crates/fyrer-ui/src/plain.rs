@@ -1,7 +1,7 @@
 use anyhow::Result;
 use tokio::{sync::broadcast, task::JoinHandle};
 
-use fyrer_engine::events::EngineEvent;
+use fyrer_engine::events::{EngineEvent, LogStream};
 
 use crate::reporter::Reporter;
 
@@ -13,17 +13,11 @@ impl Reporter for PlainReporter {
         tokio::spawn(async move {
             loop {
                 match rx.recv().await {
-                    Ok(EngineEvent::TaskLog { key, line, stream }) => {
-                        match stream {
-                            fyrer_engine::events::LogStream::Stdout => {
-                                println!("[{}] {}", key.task, line)
-                            }
-                            fyrer_engine::events::LogStream::Stderr => {
-                                eprintln!("[{}] \x1b[31m{}\x1b[0m", key.task, line)
-                            }
-                            fyrer_engine::events::LogStream::System => {}
-                        }
-                    }
+                    Ok(EngineEvent::TaskLog { key, line, stream }) => match stream {
+                        LogStream::Stdout => println!("[{}] {}", key.task, line),
+                        LogStream::Stderr => eprintln!("[{}] \x1b[31m{}\x1b[0m", key.task, line),
+                        LogStream::System => {}
+                    },
                     Ok(EngineEvent::TaskStarted { id, attempt, .. }) => {
                         println!("[{}#{}] started", id, attempt.0);
                     }
@@ -40,12 +34,13 @@ impl Reporter for PlainReporter {
                     Ok(EngineEvent::TaskSkipped { id, .. }) => {
                         println!("\x1b[90m○\x1b[0m [{}] skipped", id);
                     }
-                    Ok(EngineEvent::RunFinished(_)) => break,
-                    Ok(_) => {}
-                    Err(broadcast::error::RecvError::Closed) => break,
+                    // RunCompleted is intentionally ignored: plain mode keeps
+                    // streaming until the engine actually exits.
+                    Ok(EngineEvent::RunFinished(_)) | Err(broadcast::error::RecvError::Closed) => break,
                     Err(broadcast::error::RecvError::Lagged(n)) => {
                         eprintln!("\x1b[33m⚠\x1b[0m [fyrer] {n} events lagged");
                     }
+                    Ok(_) => {}
                 }
             }
             Ok(())

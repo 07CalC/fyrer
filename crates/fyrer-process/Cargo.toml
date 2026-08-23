@@ -8,7 +8,7 @@ description = "OS process primitives for fyrer"
 repository.workspace = true
 
 [dependencies]
-fyrer-core = { path = "../fyrer-core" }
+fyrer-core.workspace = true
 anyhow = "1.0"
 tokio = { version = "1.30", features = ["full"] }
 libc = "0.2"

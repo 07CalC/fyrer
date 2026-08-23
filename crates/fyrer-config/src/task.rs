@@ -1,8 +1,8 @@
-use std::{collections::HashMap, path::PathBuf, time::Duration};
+use std::{path::PathBuf, time::Duration};
 
 use serde::Deserialize;
 
-pub type EnvMap = HashMap<String, String>;
+pub use crate::env::EnvMap;
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]

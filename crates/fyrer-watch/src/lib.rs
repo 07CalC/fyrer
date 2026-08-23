@@ -1,13 +1,17 @@
+//! Polling file watcher: watches `watch: true` tasks' input globs and sends
+//! restart commands on changes, with debouncing.
+
 use std::{
     collections::{HashMap, HashSet},
-    path::{PathBuf, Path},
+    path::PathBuf,
     time::{Duration, SystemTime},
 };
 
-use fyrer_core::{TaskId, spec::TaskRegistry};
+use fyrer_core::{
+    TaskId,
+    spec::{TaskRegistry, TaskSpec},
+};
 use tokio::sync::mpsc;
-
-use fyrer_core::spec::TaskSpec;
 
 /// Simple polling watcher — checks mtimes of inputs globs every `poll_interval`.
 /// On change, sends `EngineCommand::Restart` for the affected task.

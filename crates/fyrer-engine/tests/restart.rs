@@ -1,8 +1,16 @@
 use std::{collections::HashMap, sync::Arc};
-use fyrer_core::{TaskId, spec::{TaskRegistry, TaskSpec}, graph::TaskGraph};
+
 use fyrer_cache::local::LocalCacheProvider;
+use fyrer_core::{
+    TaskId,
+    graph::TaskGraph,
+    spec::{TaskRegistry, TaskSpec},
+};
+use fyrer_engine::{
+    Engine,
+    events::{EngineCommand, EngineEvent, RunPlan},
+};
 use fyrer_log::LogRouter;
-use fyrer_engine::{Engine, events::{RunPlan, EngineEvent}};
 use tokio::sync::broadcast;
 
 #[tokio::test]
@@ -75,7 +83,6 @@ async fn test_dynamic_scheduling_and_restart() {
     let cache = Arc::new(LocalCacheProvider::new(tmp.path().join(".fyrer/cache").to_string_lossy().to_string()));
     let log_router = Arc::new(LogRouter::new(100, None));
     let (event_tx, _) = broadcast::channel(1024);
-    let mut rx = event_tx.subscribe();
 
     let engine = Engine::new(registry.clone(), graph.clone(), cache.clone(), log_router.clone(), event_tx.clone(), Some(4));
     let plan = RunPlan::new(vec![a_id.clone(), b_id.clone(), c_id.clone()]);
@@ -87,35 +94,40 @@ async fn test_dynamic_scheduling_and_restart() {
         engine_clone.run_with_receiver(plan, cmd_rx).await
     });
 
-    // Collect events in background (drain)
-    let _collector = tokio::spawn(async move {
-        let mut evs = Vec::new();
-        while let Ok(ev) = rx.recv().await {
-            match &ev {
-                EngineEvent::RunFinished(_) => {
-                    evs.push(ev.clone());
-                    break;
+    // Watch events until `b` finishes successfully (only possible after restart)
+    let mut watcher_rx = event_tx.subscribe();
+    let b_for_watch = b_id.clone();
+    let cmd_tx_for_shutdown = cmd_tx.clone();
+    let collector = tokio::spawn(async move {
+        loop {
+            match watcher_rx.recv().await {
+                Ok(EngineEvent::TaskFinished { id, outcome, .. }) => {
+                    if id == b_for_watch && outcome.is_success() {
+                        // Chain repaired — tell the engine to stop.
+                        let _ = cmd_tx_for_shutdown
+                            .send(EngineCommand::Shutdown)
+                            .await;
+                        break;
+                    }
                 }
-                _ => evs.push(ev.clone()),
+                Err(broadcast::error::RecvError::Closed) => break,
+                _ => {}
             }
         }
-        evs
     });
 
-    // Wait a bit for first run to complete (a fails, b skipped, c succeeds)
+    // Wait a bit for first pass to complete (a fails, b skipped, c succeeds)
     tokio::time::sleep(std::time::Duration::from_millis(500)).await;
 
-    // Now create flag so a will succeed on restart
+    // Create the flag so `a` will succeed on restart
     std::fs::write(&flag, "1").unwrap();
 
-    // Send restart for a
-    cmd_tx.send(fyrer_engine::events::EngineCommand::Restart(vec![a_id.clone()])).await.unwrap();
+    // Send restart for a — engine is parked waiting for commands post-run
+    cmd_tx.send(EngineCommand::Restart(vec![a_id.clone()])).await.unwrap();
 
-    // Wait for engine to finish (needs to handle restart)
-    // The engine's run_with_receiver will not finish until all tasks terminal and no ready.
-    // After restart, a will succeed and b should be retried.
-    // We need to wait for handle
+    // Engine exits after Shutdown triggered by the collector
     let summary = tokio::time::timeout(std::time::Duration::from_secs(10), handle).await.unwrap().unwrap().unwrap();
+    let _ = collector.await;
     println!("summary: {:?}", summary);
     assert_eq!(summary.failed, 0, "after restart, no failures");
     assert_eq!(summary.successful, 3, "all three should succeed after restart");
@@ -149,4 +161,68 @@ async fn test_concurrent_independent_tasks() {
     println!("elapsed: {:?}", elapsed);
     assert!(elapsed < std::time::Duration::from_millis(350), "tasks should run in parallel, elapsed {:?}", elapsed);
     assert_eq!(summary.successful, 2);
+}
+
+#[tokio::test]
+async fn test_duration_stops_at_completion_not_shutdown() {
+    // Two fast tasks; interactive engine parks after completion.
+    // Simulated user browsing must NOT inflate summary.duration.
+    let tmp = tempfile::tempdir().unwrap();
+    let cwd1 = tmp.path().join("p1");
+    let cwd2 = tmp.path().join("p2");
+    std::fs::create_dir_all(&cwd1).unwrap();
+    std::fs::create_dir_all(&cwd2).unwrap();
+
+    let id1 = TaskId::new("pkg", "t1");
+    let id2 = TaskId::new("pkg", "t2");
+    let spec1 = Arc::new(TaskSpec::new(id1.clone(), HashMap::new(), false, false, false, None, cwd1, "sleep 0.15 && echo t1".to_string(), vec![], vec![], vec![], vec![]));
+    let spec2 = Arc::new(TaskSpec::new(id2.clone(), HashMap::new(), false, false, false, None, cwd2, "sleep 0.15 && echo t2".to_string(), vec![], vec![], vec![], vec![]));
+    let mut map = HashMap::new();
+    map.insert(id1, spec1);
+    map.insert(id2, spec2);
+    let registry = TaskRegistry::new(map);
+    let graph = TaskGraph::from_specs(registry.iter().map(|(id, s)| (id.clone(), s.depends_on.clone()))).unwrap();
+    let cache = Arc::new(LocalCacheProvider::new(tmp.path().join(".fyrer/cache").to_string_lossy().to_string()));
+    let log_router = Arc::new(LogRouter::new(100, None));
+    let (event_tx, _) = broadcast::channel(1024);
+
+    let engine = Engine::new(registry, graph, cache, log_router, event_tx.clone(), Some(4));
+    let (cmd_tx, cmd_rx) = tokio::sync::mpsc::channel(16);
+    let handle_join = tokio::spawn(async move {
+        engine.run_with_receiver(RunPlan::new(vec![TaskId::new("pkg", "t1"), TaskId::new("pkg", "t2")]), cmd_rx).await
+    });
+
+    // Drain events until every task has reached a terminal state.
+    // NOTE: RunFinished is only emitted after the engine loop exits, so we
+    // can't wait for it here — the engine parks post-completion in
+    // interactive mode.
+    let mut rx = event_tx.subscribe();
+    let mut terminal = 0;
+    loop {
+        match rx.recv().await {
+            Ok(EngineEvent::TaskFinished { .. })
+            | Ok(EngineEvent::TaskSkipped { .. })
+            | Ok(EngineEvent::TaskCacheHit { .. }) => {
+                terminal += 1;
+                if terminal >= 2 {
+                    break;
+                }
+            }
+            Err(broadcast::error::RecvError::Closed) => break,
+            _ => {}
+        }
+    }
+
+    // Simulate user browsing the TUI for 800ms after completion
+    tokio::time::sleep(std::time::Duration::from_millis(800)).await;
+    let _ = cmd_tx.send(EngineCommand::Shutdown).await;
+    let summary = tokio::time::timeout(std::time::Duration::from_secs(5), handle_join).await.unwrap().unwrap().unwrap();
+
+    println!("summary: {:?}", summary);
+    // Tasks take ~150-300ms; if the bug were present the duration would be >= 800ms
+    assert!(
+        summary.duration < std::time::Duration::from_millis(600),
+        "duration should stop at task completion, not shutdown: {:?}",
+        summary.duration
+    );
 }

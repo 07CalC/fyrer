@@ -49,6 +49,11 @@ pub enum EngineEvent {
     TaskSkipped { id: TaskId, reason: SkipReason },
     TaskRestarting { id: TaskId, killed_attempt: Attempt },
     DependentsStale { ids: Vec<TaskId> },
+    /// All tasks reached a terminal state. Emitted immediately at completion,
+    /// even if the engine keeps serving commands afterwards (interactive/TUI
+    /// mode). May fire again after post-run restarts.
+    RunCompleted(RunSummary),
+    /// Final event before the engine task returns.
     RunFinished(RunSummary),
     NonFatalError { task_id: Option<TaskId>, error: String },
     Warning { task_id: Option<TaskId>, message: String },

@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/*"]
+members = ["crates/*", "xtask"]
 resolver = "2"
 
 [workspace.package]
@@ -9,46 +9,18 @@ authors = ["Calc <hello@vinm.me>"]
 license = "MIT"
 repository = "https://github.com/07calc/fyrer"
 
-[package]
-name = "fyrer"
-version.workspace = true
-edition.workspace = true
-authors.workspace = true
-license.workspace = true
-description = "A lightweight declarative language agnostic monorepo tool / task orchestrator"
-readme = "README.md"
-keywords = ["monorepo", "task-runner", "dev-server", "concurrency", "cli"]
-categories = ["command-line-utilities", "development-tools"]
+# Internal crates: path + version so `cargo publish` works against crates.io
+# (path-only dependencies are rejected when publishing).
+[workspace.dependencies]
+fyrer-core = { path = "crates/fyrer-core", version = "0.3.3" }
+fyrer-process = { path = "crates/fyrer-process", version = "0.3.3" }
+fyrer-log = { path = "crates/fyrer-log", version = "0.3.3" }
+fyrer-config = { path = "crates/fyrer-config", version = "0.3.3" }
+fyrer-cache = { path = "crates/fyrer-cache", version = "0.3.3" }
+fyrer-engine = { path = "crates/fyrer-engine", version = "0.3.3" }
+fyrer-watch = { path = "crates/fyrer-watch", version = "0.3.3" }
+fyrer-ui = { path = "crates/fyrer-ui", version = "0.3.3" }
 
-[dependencies]
-ansi-to-tui = "8.0.1"
-anyhow = "1.0.104"
-blake3 = "1.8.6"
-chrono = "0.4.45"
-clap = { version = "4.5", features = ["derive"] }
-crossterm = "0.29.0"
-fyrer-cache = { path = "crates/fyrer-cache" }
-fyrer-config = { path = "crates/fyrer-config" }
-fyrer-core = { path = "crates/fyrer-core" }
-fyrer-engine = { path = "crates/fyrer-engine" }
-fyrer-log = { path = "crates/fyrer-log" }
-fyrer-process = { path = "crates/fyrer-process" }
-fyrer-ui = { path = "crates/fyrer-ui" }
-fyrer-watch = { path = "crates/fyrer-watch" }
-glob = "0.3.4"
-humantime-serde = "1.1.1"
-libc = "0.2"
-owo-colors = "4.3.0"
-ratatui = "0.30.2"
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0.151"
-serde_yaml = "0.9"
-tar = "0.4.46"
-tempfile = "3.27.0"
-thiserror = "1.0"
-tokio = { version = "1.30", features = ["full"] }
-zstd = "0.13.3"
-
-[lints.clippy]
+[workspace.lints.clippy]
 all = "warn"
 pedantic = "warn"

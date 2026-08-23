@@ -1,0 +1,30 @@
+[package]
+name = "fyrer"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "A lightweight declarative language agnostic monorepo tool / task orchestrator"
+repository.workspace = true
+keywords = ["monorepo", "task-runner", "dev-server", "concurrency", "cli"]
+categories = ["command-line-utilities", "development-tools"]
+
+[[bin]]
+name = "fyrer"
+path = "src/main.rs"
+
+[lints]
+workspace = true
+
+[dependencies]
+anyhow = "1.0"
+clap = { version = "4.5", features = ["derive"] }
+owo-colors = "4.3.0"
+tokio = { version = "1.30", features = ["full"] }
+fyrer-cache.workspace = true
+fyrer-config.workspace = true
+fyrer-core.workspace = true
+fyrer-engine.workspace = true
+fyrer-log.workspace = true
+fyrer-ui.workspace = true
+fyrer-watch.workspace = true

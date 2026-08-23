@@ -1,5 +1,12 @@
+//! Single-writer engine: owns all mutable run state and drives scheduling,
+//! supervision and restarts from one event loop.
+//!
+//! Ownership chain: `Engine` -> supervisor (per attempt) -> child process.
+//! Control arrives as [`EngineCommand`]s; observations leave as data-only
+//! [`EngineEvent`]s.
+
 use std::{
-    collections::{HashMap, HashSet},
+    collections::HashMap,
     sync::{
         Arc,
         atomic::{AtomicU64, Ordering},
@@ -8,36 +15,43 @@ use std::{
 };
 
 use anyhow::Result;
-use fyrer_cache::provider::{CacheMetadata, CacheProvider, CacheStatus};
+use fyrer_cache::{
+    hash::{hash_file, hash_kv},
+    provider::{CacheMetadata, CacheProvider, CacheStatus},
+};
 use fyrer_core::{
-    Attempt, ExecKey, RunId, TaskId,
-    spec::TaskRegistry,
+    Attempt, ExecKey, RunId, TaskGraph, TaskId,
+    spec::{TaskRegistry, TaskSpec},
     status::{ExitReason, SkipReason, TaskOutcome, TaskStatus},
 };
-use fyrer_log::{LogLine, LogRouter, LogStream as RouterStream};
-use tokio::{
-    sync::{broadcast, mpsc, Semaphore},
-    task::JoinHandle,
-};
+use fyrer_log::LogRouter;
+use tokio::sync::{Semaphore, broadcast, mpsc};
 
 use crate::{
-    events::{EngineCommand, EngineEvent, LogStream, RunPlan, RunSummary, SupervisorMsg, SupCommand},
+    events::{EngineCommand, EngineEvent, RunPlan, RunSummary, SupCommand, SupervisorMsg},
     scheduler::SchedulerState,
     supervisor::{SupervisorOpts, spawn_supervisor},
 };
 
 static RUN_COUNTER: AtomicU64 = AtomicU64::new(1);
 
-struct LiveHandle {
-    attempt: Attempt,
-    cmd_tx: mpsc::Sender<SupCommand>,
-    join: JoinHandle<TaskOutcome>,
+fn default_concurrency() -> usize {
+    std::thread::available_parallelism().map(|n| n.get()).unwrap_or(4)
 }
 
+/// Handle to one in-flight attempt. The engine registry is the only holder of
+/// the command channel — UIs never receive process capabilities.
+struct LiveHandle {
+    cmd_tx: mpsc::Sender<SupCommand>,
+}
+
+/// Everything the engine knows about one task during a run.
 struct TaskRecord {
     status: TaskStatus,
     attempts: Vec<TaskOutcome>,
     next_attempt: Attempt,
+    /// Set when a Restart command killed the live attempt; the exit handler
+    /// then turns a kill/timeout into a requeue instead of a failure.
     restart_pending: bool,
 }
 
@@ -50,12 +64,67 @@ impl TaskRecord {
             restart_pending: false,
         }
     }
+
+    fn last_attempt(&self) -> Attempt {
+        self.attempts.last().map(|o| o.attempt).unwrap_or(Attempt::first())
+    }
+}
+
+/// All mutable state for one run, owned exclusively by the event loop.
+struct RunState {
+    scheduler: SchedulerState,
+    records: HashMap<TaskId, TaskRecord>,
+    live: HashMap<TaskId, LiveHandle>,
+    cache_keys: HashMap<TaskId, String>,
+    output_digests: HashMap<TaskId, String>,
+    completed_at: Option<Duration>,
+}
+
+impl RunState {
+    fn new(scheduler: SchedulerState) -> Self {
+        let records = scheduler
+            .relevant
+            .iter()
+            .map(|id| (id.clone(), TaskRecord::new()))
+            .collect();
+        Self {
+            scheduler,
+            records,
+            live: HashMap::new(),
+            cache_keys: HashMap::new(),
+            output_digests: HashMap::new(),
+            completed_at: None,
+        }
+    }
+
+    /// True when nothing is running, nothing is queued and every record is
+    /// terminal (or stale from an upstream restart).
+    fn is_done(&self) -> bool {
+        self.live.is_empty()
+            && self.scheduler.ready.is_empty()
+            && self.records.values().all(|r| r.status.is_terminal() || r.status == TaskStatus::Stale)
+    }
+
+    /// Requeue a finished/stale task for its next attempt. Returns false for
+    /// tasks that are live or not yet started.
+    fn requeue(&mut self, id: &TaskId) -> bool {
+        let Some(rec) = self.records.get_mut(id) else {
+            return false;
+        };
+        if !rec.status.is_terminal() && rec.status != TaskStatus::Stale {
+            return false;
+        }
+        rec.status = TaskStatus::Pending;
+        rec.next_attempt = rec.last_attempt().next();
+        self.scheduler.push_ready(id.clone());
+        true
+    }
 }
 
 #[derive(Clone)]
 pub struct Engine {
     registry: Arc<TaskRegistry>,
-    graph: fyrer_core::TaskGraph,
+    graph: TaskGraph,
     cache: Arc<dyn CacheProvider>,
     log_router: Arc<LogRouter>,
     event_tx: broadcast::Sender<EngineEvent>,
@@ -65,34 +134,30 @@ pub struct Engine {
 impl Engine {
     pub fn new(
         registry: TaskRegistry,
-        graph: fyrer_core::TaskGraph,
+        graph: TaskGraph,
         cache: Arc<dyn CacheProvider>,
         log_router: Arc<LogRouter>,
         event_tx: broadcast::Sender<EngineEvent>,
         concurrency: Option<usize>,
     ) -> Self {
-        let concurrency = concurrency.unwrap_or_else(|| {
-            std::thread::available_parallelism()
-                .map(|n| n.get())
-                .unwrap_or(4)
-        });
         Self {
             registry: Arc::new(registry),
             graph,
             cache,
             log_router,
             event_tx,
-            concurrency,
+            concurrency: concurrency.unwrap_or_else(default_concurrency),
         }
     }
 
+    /// One-shot run: exits as soon as every task is terminal. No control.
     pub async fn run_once(&self, plan: RunPlan) -> Result<RunSummary> {
-        // run_once creates a private command channel (no external control) and exits immediately when done
         let (_cmd_tx, cmd_rx) = mpsc::channel::<EngineCommand>(16);
         self.clone().run_with_receiver_inner(plan, cmd_rx, false).await
     }
 
-    /// Run with an externally-provided command receiver (used by EngineHandle for restart).
+    /// Interactive run: keeps serving commands after completion (TUI browsing,
+    /// watch mode). Exits on [`EngineCommand::Shutdown`] or channel close.
     pub async fn run_with_receiver(
         self,
         plan: RunPlan,
@@ -101,538 +166,380 @@ impl Engine {
         self.run_with_receiver_inner(plan, cmd_rx, true).await
     }
 
-    async fn run_with_receiver_inner(
+    pub(crate) async fn run_with_receiver_inner(
         self,
         plan: RunPlan,
         mut cmd_rx: mpsc::Receiver<EngineCommand>,
         wait_after_done: bool,
     ) -> Result<RunSummary> {
         let run_id = RunId::new(RUN_COUNTER.fetch_add(1, Ordering::Relaxed));
-        let roots = plan.task_ids.clone();
-        if roots.is_empty() {
-            anyhow::bail!("No tasks found for the given specifier");
-        }
-        for id in &roots {
-            if !self.graph.contains(id) {
-                anyhow::bail!("Task {} not found", id);
-            }
-        }
-
-        let relevant = self.graph.transitive_closure(&roots);
-        if relevant.is_empty() {
-            anyhow::bail!("No tasks in closure");
-        }
-
+        let roots = self.resolve_roots(&plan)?;
         let start = Instant::now();
         let _ = self.event_tx.send(EngineEvent::RunStarted {
             run: run_id,
             planned: roots.clone(),
         });
 
-        // state owned by this task (single writer)
-        let mut scheduler = SchedulerState::new(self.graph.clone(), &roots);
-        let mut records: HashMap<TaskId, TaskRecord> = relevant
-            .iter()
-            .map(|id| (id.clone(), TaskRecord::new()))
-            .collect();
-        let mut live: HashMap<TaskId, LiveHandle> = HashMap::new();
-        let mut output_digest_cache: HashMap<TaskId, String> = HashMap::new();
-
+        let scheduler = SchedulerState::new(self.graph.clone(), &roots);
+        let mut st = RunState::new(scheduler);
         let semaphore = Arc::new(Semaphore::new(self.concurrency));
         let (sup_tx, mut sup_rx) = mpsc::unbounded_channel::<SupervisorMsg>();
 
-        // Memoized cache keys
-        let mut cache_key_cache: HashMap<TaskId, String> = HashMap::new();
+        self.pump_ready(run_id, &mut st, &sup_tx, &semaphore).await;
 
-        let mut pending_restarts: HashSet<TaskId> = HashSet::new();
-
-        // initial schedule
-        Self::schedule_ready(
-            run_id,
-            &mut scheduler,
-            &mut records,
-            &mut live,
-            &self.registry,
-            &self.cache,
-            &self.log_router,
-            &self.event_tx,
-            &sup_tx,
-            Arc::clone(&semaphore),
-            &mut cache_key_cache,
-            &mut output_digest_cache,
-        )
-        .await;
-
-        // main loop
         loop {
-            // termination: no live tasks and no ready tasks => run finished
-            let done = live.is_empty()
-                && scheduler.ready.is_empty()
-                && records.values().all(|r| r.status.is_terminal() || r.status == TaskStatus::Stale);
-            if done {
-                if wait_after_done {
-                    let is_watch = self.registry.iter().any(|(_, s)| s.watch);
-                    if is_watch {
-                        // For watch mode, wait indefinitely for file changes or shutdown
-                        tokio::select! {
-                            Some(cmd) = cmd_rx.recv() => {
-                                match cmd {
-                                    EngineCommand::Restart(ids) => {
-                                        for id in ids {
-                                            if !scheduler.is_relevant(&id) { continue; }
-                                            if let Some(handle) = live.get(&id) {
-                                                if let Some(r) = records.get_mut(&id) { r.restart_pending = true; }
-                                                let _ = handle.cmd_tx.send(SupCommand::Kill).await;
-                                            } else if let Some(r) = records.get_mut(&id) {
-                                                if r.status.is_terminal() || r.status == TaskStatus::Stale {
-                                                    r.status = TaskStatus::Pending;
-                                                    scheduler.push_ready(id.clone());
-                                                    r.next_attempt = r.attempts.last().map(|o| o.attempt.next()).unwrap_or(Attempt::first());
-                                                    let _ = self.event_tx.send(EngineEvent::TaskRestarting { id: id.clone(), killed_attempt: r.attempts.last().map(|o| o.attempt).unwrap_or(Attempt::first()) });
-                                                }
-                                            }
-                                        }
-                                        Self::schedule_ready(
-                                            run_id,
-                                            &mut scheduler,
-                                            &mut records,
-                                            &mut live,
-                                            &self.registry,
-                                            &self.cache,
-                                            &self.log_router,
-                                            &self.event_tx,
-                                            &sup_tx,
-                                            Arc::clone(&semaphore),
-                                            &mut cache_key_cache,
-                                            &mut output_digest_cache,
-                                        ).await;
-                                        continue;
-                                    }
-                                    EngineCommand::Kill(ids) => {
-                                        for id in ids { if let Some(h) = live.get(&id) { let _ = h.cmd_tx.send(SupCommand::Kill).await; } }
-                                        continue;
-                                    }
-                                    EngineCommand::Shutdown => break,
-                                    EngineCommand::Start(_) => continue,
-                                }
-                            }
-                            _ = tokio::signal::ctrl_c() => {
-                                for h in live.values() { let _ = h.cmd_tx.send(SupCommand::Kill).await; }
-                                break;
-                            }
-                        }
-                    } else {
-                        // For one-shot handle (e.g., restart test), wait a bit for a restart command
-                        tokio::select! {
-                            Some(cmd) = cmd_rx.recv() => {
-                                match cmd {
-                                    EngineCommand::Restart(ids) => {
-                                        for id in ids {
-                                            if !scheduler.is_relevant(&id) { continue; }
-                                            if let Some(handle) = live.get(&id) {
-                                                if let Some(r) = records.get_mut(&id) { r.restart_pending = true; }
-                                                let _ = handle.cmd_tx.send(SupCommand::Kill).await;
-                                            } else if let Some(r) = records.get_mut(&id) {
-                                                if r.status.is_terminal() || r.status == TaskStatus::Stale {
-                                                    r.status = TaskStatus::Pending;
-                                                    scheduler.push_ready(id.clone());
-                                                    r.next_attempt = r.attempts.last().map(|o| o.attempt.next()).unwrap_or(Attempt::first());
-                                                    let _ = self.event_tx.send(EngineEvent::TaskRestarting { id: id.clone(), killed_attempt: r.attempts.last().map(|o| o.attempt).unwrap_or(Attempt::first()) });
-                                                }
-                                            }
-                                        }
-                                        Self::schedule_ready(
-                                            run_id,
-                                            &mut scheduler,
-                                            &mut records,
-                                            &mut live,
-                                            &self.registry,
-                                            &self.cache,
-                                            &self.log_router,
-                                            &self.event_tx,
-                                            &sup_tx,
-                                            Arc::clone(&semaphore),
-                                            &mut cache_key_cache,
-                                            &mut output_digest_cache,
-                                        ).await;
-                                        continue;
-                                    }
-                                    EngineCommand::Kill(ids) => {
-                                        for id in ids { if let Some(h) = live.get(&id) { let _ = h.cmd_tx.send(SupCommand::Kill).await; } }
-                                        continue;
-                                    }
-                                    EngineCommand::Shutdown => break,
-                                    EngineCommand::Start(_) => continue,
-                                }
-                            }
-                            _ = tokio::time::sleep(Duration::from_secs(2)) => break,
-                            _ = tokio::signal::ctrl_c() => {
-                                for h in live.values() { let _ = h.cmd_tx.send(SupCommand::Kill).await; }
-                                break;
-                            }
-                        }
-                    }
-                } else {
+            // Stamp + announce completion on the fresh done-transition so the
+            // TUI summary appears immediately; interactive engines keep
+            // serving commands afterwards. Post-run restarts re-trigger this.
+            if st.is_done() {
+                if st.completed_at.is_none() {
+                    st.completed_at = Some(start.elapsed());
+                    let duration = st.completed_at.unwrap_or_default();
+                    let summary = build_summary(&st.records, duration);
+                    let _ = self.event_tx.send(EngineEvent::RunCompleted(summary));
+                }
+                if !wait_after_done {
                     break;
                 }
             }
 
             tokio::select! {
-                _ = tokio::signal::ctrl_c() => {
-                    for h in live.values() {
-                        let _ = h.cmd_tx.send(SupCommand::Kill).await;
-                    }
-                }
-                Some(msg) = sup_rx.recv() => {
-                    match msg {
-                        SupervisorMsg::Started { .. } => {}
-                        SupervisorMsg::Exited { key, outcome } => {
-                            // release permit by dropping? semaphore permit is held per task via guard
-                            // we acquire permit inside schedule_ready via permit acquisition per spawn.
-                            // Instead we track permits via semaphore permits held in live? Simpler: we acquire permit before spawn and release on exit.
-                            // Our schedule_ready acquires owned permit and forgets; we need to release here.
-                            // Actually semaphore permits are not tied to task lifecycle in this simple impl — we just acquire before spawn and drop after exit via semaphore.add_permits(1)
-                            semaphore.add_permits(1);
-                            let task_id = key.task.clone();
-                            live.remove(&task_id);
-                            let rec = records.get_mut(&task_id).expect("record exists");
-                            rec.attempts.push(outcome.clone());
-
-                            let final_status = match &outcome.exit {
-                                ExitReason::Success(0) => {
-                                    // try cache save if needed
-                                    if let Some(spec) = self.registry.get(&task_id) {
-                                        if spec.cacheable {
-                                            Self::try_cache_save(
-                                                &spec,
-                                                &self.cache,
-                                                &self.event_tx,
-                                                &mut cache_key_cache,
-                                                outcome.duration.as_millis(),
-                                                outcome.exit_code,
-                                            ).await;
-                                        }
-                                    }
-                                    TaskStatus::Succeeded { attempt: outcome.attempt }
-                                }
-                                ExitReason::Success(c) if *c != 0 => {
-                                    TaskStatus::Failed { attempt: outcome.attempt }
-                                }
-                                ExitReason::Failure(_) | ExitReason::Signal(_) | ExitReason::SpawnError(_) => {
-                                    TaskStatus::Failed { attempt: outcome.attempt }
-                                }
-                                ExitReason::Timeout | ExitReason::Killed => {
-                                    // check if restart was pending
-                                    if rec.restart_pending {
-                                        rec.restart_pending = false;
-                                        TaskStatus::Restarting { from: outcome.attempt }
-                                    } else {
-                                        TaskStatus::Failed { attempt: outcome.attempt }
-                                    }
-                                }
-                                _ => TaskStatus::Failed { attempt: outcome.attempt },
-                            };
-
-                            // handle restart-pending case
-                            if matches!(final_status, TaskStatus::Restarting { .. }) {
-                                let _ = self.event_tx.send(EngineEvent::TaskRestarting {
-                                    id: task_id.clone(),
-                                    killed_attempt: outcome.attempt,
-                                });
-                                // requeue
-                                rec.status = TaskStatus::Pending;
-                                scheduler.push_ready(task_id.clone());
-                                rec.next_attempt = outcome.attempt.next();
-                            } else {
-                                rec.status = final_status.clone();
-                                let _ = self.event_tx.send(EngineEvent::TaskFinished {
-                                    id: task_id.clone(),
-                                    outcome: outcome.clone(),
-                                    final_status: final_status.clone(),
-                                });
-                                if matches!(final_status, TaskStatus::Succeeded { .. }) {
-                                    // Reset Skipped direct dependents so they can be retried after a restart
-                                    for dep in scheduler.graph.dependents_of(&task_id) {
-                                        if let Some(r) = records.get_mut(&dep) {
-                                            if matches!(r.status, TaskStatus::Skipped { .. }) {
-                                                r.status = TaskStatus::Pending;
-                                            }
-                                        }
-                                    }
-                                    let _newly = scheduler.on_success(&task_id);
-                                } else if matches!(final_status, TaskStatus::Failed { .. }) {
-                                    // cascade skip
-                                    let to_skip = scheduler.transitive_dependents_to_skip(&task_id);
-                                    for dep in to_skip {
-                                        if let Some(r) = records.get_mut(&dep) {
-                                            if matches!(r.status, TaskStatus::Pending | TaskStatus::Ready) {
-                                                r.status = TaskStatus::Skipped { reason: SkipReason::UpstreamFailed };
-                                                let _ = self.event_tx.send(EngineEvent::TaskSkipped {
-                                                    id: dep.clone(),
-                                                    reason: SkipReason::UpstreamFailed,
-                                                });
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-
-                            // if pending_restarts contains this task and we just restarted, clear
-                            pending_restarts.remove(&task_id);
-
-                            // handle pending restarts that were waiting for this task to exit (restart of a running task)
-                            // they are already requeued via Restarting branch
-
-                            // try scheduling more
-                            Self::schedule_ready(
-                                run_id,
-                                &mut scheduler,
-                                &mut records,
-                                &mut live,
-                                &self.registry,
-                                &self.cache,
-                                &self.log_router,
-                                &self.event_tx,
-                                &sup_tx,
-                                Arc::clone(&semaphore),
-                                &mut cache_key_cache,
-                                &mut output_digest_cache,
-                            )
-                            .await;
-                        }
-                    }
-                }
-                Some(cmd) = cmd_rx.recv() => {
-                    match cmd {
-                        EngineCommand::Restart(ids) => {
-                            for id in ids {
-                                if !scheduler.is_relevant(&id) {
-                                    continue;
-                                }
-                                if let Some(handle) = live.get(&id) {
-                                    // mark pending, send kill
-                                    if let Some(r) = records.get_mut(&id) {
-                                        r.restart_pending = true;
-                                    }
-                                    let _ = handle.cmd_tx.send(SupCommand::Kill).await;
-                                } else {
-                                    // not running — just requeue if terminal
-                                    if let Some(r) = records.get_mut(&id) {
-                                        if r.status.is_terminal() || r.status == TaskStatus::Stale {
-                                            r.status = TaskStatus::Pending;
-                                            scheduler.push_ready(id.clone());
-                                            r.next_attempt = r.attempts.last().map(|o| o.attempt.next()).unwrap_or(Attempt::first());
-                                            let _ = self.event_tx.send(EngineEvent::TaskRestarting { id: id.clone(), killed_attempt: r.attempts.last().map(|o| o.attempt).unwrap_or(Attempt::first()) });
-                                        }
-                                    }
-                                }
-                            }
-                            Self::schedule_ready(
-                                run_id,
-                                &mut scheduler,
-                                &mut records,
-                                &mut live,
-                                &self.registry,
-                                &self.cache,
-                                &self.log_router,
-                                &self.event_tx,
-                                &sup_tx,
-                                Arc::clone(&semaphore),
-                                &mut cache_key_cache,
-                                &mut output_digest_cache,
-                            )
-                            .await;
-                        }
-                        EngineCommand::Kill(ids) => {
-                            for id in ids {
-                                if let Some(h) = live.get(&id) {
-                                    let _ = h.cmd_tx.send(SupCommand::Kill).await;
-                                }
-                            }
-                        }
-                        EngineCommand::Shutdown => {
-                            for h in live.values() {
-                                let _ = h.cmd_tx.send(SupCommand::Kill).await;
-                            }
-                            // wait a bit for exits
-                            tokio::time::sleep(Duration::from_millis(200)).await;
+                maybe_cmd = cmd_rx.recv() => match maybe_cmd {
+                    Some(cmd) => {
+                        if !self.handle_command(run_id, &mut st, cmd, &sup_tx, &semaphore).await {
                             break;
                         }
-                        EngineCommand::Start(_) => {}
                     }
-                }
-                else => break,
+                    None => {
+                        // Command channel closed: nobody can control us anymore.
+                        self.kill_all(&mut st).await;
+                        break;
+                    }
+                },
+                _ = tokio::signal::ctrl_c() => {
+                    // Kill children but stay in the loop until their exits
+                    // arrive through `sup_rx`.
+                    self.kill_all(&mut st).await;
+                },
+                Some(msg) = sup_rx.recv() => {
+                    if let SupervisorMsg::Exited { key, outcome } = msg {
+                        // One permit per finished attempt.
+                        semaphore.add_permits(1);
+                        self.on_task_exit(run_id, &mut st, key.task, outcome, &sup_tx, &semaphore).await;
+                    }
+                },
             }
         }
 
-        let duration = start.elapsed();
-        let summary = Self::build_summary(&records, duration);
+        // Prefer the stamped completion time; fall back to exit time when we
+        // were shut down mid-run.
+        let duration = st.completed_at.unwrap_or_else(|| start.elapsed());
+        let summary = build_summary(&st.records, duration);
         let _ = self.event_tx.send(EngineEvent::RunFinished(summary.clone()));
         Ok(summary)
     }
 
-    async fn schedule_ready(
+    fn resolve_roots(&self, plan: &RunPlan) -> Result<Vec<TaskId>> {
+        let roots = plan.task_ids.clone();
+        if roots.is_empty() {
+            anyhow::bail!("No tasks found for the given specifier");
+        }
+        for id in &roots {
+            if !self.graph.contains(id) {
+                anyhow::bail!("Task {id} not found");
+            }
+        }
+        Ok(roots)
+    }
+
+    /// Send Kill to every live attempt. Best-effort: dead channels are ignored.
+    async fn kill_all(&self, st: &mut RunState) {
+        for handle in st.live.values() {
+            let _ = handle.cmd_tx.send(SupCommand::Kill).await;
+        }
+    }
+
+    /// Apply an external command. Returns false when the engine must stop.
+    async fn handle_command(
+        &self,
         run_id: RunId,
-        scheduler: &mut SchedulerState,
-        records: &mut HashMap<TaskId, TaskRecord>,
-        live: &mut HashMap<TaskId, LiveHandle>,
-        registry: &TaskRegistry,
-        cache: &Arc<dyn CacheProvider>,
-        log_router: &Arc<LogRouter>,
-        event_tx: &broadcast::Sender<EngineEvent>,
+        st: &mut RunState,
+        cmd: EngineCommand,
         sup_tx: &mpsc::UnboundedSender<SupervisorMsg>,
-        semaphore: Arc<Semaphore>,
-        cache_key_cache: &mut HashMap<TaskId, String>,
-        output_digest_cache: &mut HashMap<TaskId, String>,
+        semaphore: &Arc<Semaphore>,
+    ) -> bool {
+        match cmd {
+            EngineCommand::Restart(ids) => {
+                for id in ids {
+                    if !st.scheduler.is_relevant(&id) {
+                        continue;
+                    }
+                    if let Some(handle) = st.live.get(&id) {
+                        // Live attempt: mark it, kill it — the exit handler
+                        // requeues instead of failing.
+                        if let Some(rec) = st.records.get_mut(&id) {
+                            rec.restart_pending = true;
+                        }
+                        let _ = handle.cmd_tx.send(SupCommand::Kill).await;
+                    } else if st.requeue(&id) {
+                        let _ = self.event_tx.send(EngineEvent::TaskRestarting {
+                            id: id.clone(),
+                            killed_attempt: st
+                                .records
+                                .get(&id)
+                                .map(|r| r.last_attempt())
+                                .unwrap_or(Attempt::first()),
+                        });
+                    }
+                }
+                self.pump_ready(run_id, st, sup_tx, semaphore).await;
+                true
+            }
+            EngineCommand::Kill(ids) => {
+                for id in ids {
+                    if let Some(handle) = st.live.get(&id) {
+                        let _ = handle.cmd_tx.send(SupCommand::Kill).await;
+                    }
+                }
+                true
+            }
+            EngineCommand::Shutdown => {
+                self.kill_all(st).await;
+                false
+            }
+            EngineCommand::Start(_) => true,
+        }
+    }
+
+    /// Handle a supervisor reporting that its process exited.
+    async fn on_task_exit(
+        &self,
+        run_id: RunId,
+        st: &mut RunState,
+        task_id: TaskId,
+        outcome: TaskOutcome,
+        sup_tx: &mpsc::UnboundedSender<SupervisorMsg>,
+        semaphore: &Arc<Semaphore>,
     ) {
-        while let Some(task_id) = scheduler.pop_ready() {
-            // check if blocked by upstream failure before taking mutable borrow
-            let spec = registry.get(&task_id).expect("spec exists").clone();
-            let blocked = spec.depends_on.iter().any(|dep| {
-                records
-                    .get(dep)
-                    .map(|r| matches!(r.status, TaskStatus::Failed { .. } | TaskStatus::Skipped { .. }))
-                    .unwrap_or(false)
+        st.live.remove(&task_id);
+        let Some(rec) = st.records.get_mut(&task_id) else {
+            return;
+        };
+        rec.attempts.push(outcome.clone());
+
+        let restart_pending = rec.restart_pending;
+        let final_status = classify_exit(&outcome, restart_pending);
+
+        if matches!(final_status, TaskStatus::Restarting { .. }) {
+            // Restart requested while live: requeue for the next attempt.
+            rec.restart_pending = false;
+            rec.status = TaskStatus::Pending;
+            rec.next_attempt = outcome.attempt.next();
+            let _ = self.event_tx.send(EngineEvent::TaskRestarting {
+                id: task_id.clone(),
+                killed_attempt: outcome.attempt,
             });
-            let rec = records.get_mut(&task_id).unwrap();
-            if rec.status.is_terminal() {
-                continue;
+            st.scheduler.push_ready(task_id.clone());
+            self.pump_ready(run_id, st, sup_tx, semaphore).await;
+            return;
+        }
+
+        rec.status = final_status.clone();
+        let _ = self.event_tx.send(EngineEvent::TaskFinished {
+            id: task_id.clone(),
+            outcome: outcome.clone(),
+            final_status: final_status.clone(),
+        });
+
+        if matches!(final_status, TaskStatus::Succeeded { .. }) {
+            if let Some(spec) = self.registry.get(&task_id) {
+                if spec.cacheable {
+                    self.save_to_cache(&spec, &mut st.cache_keys, &outcome).await;
+                }
             }
-            if live.contains_key(&task_id) {
-                continue;
+            // A late success unblocks dependents; skipped ones may retry now.
+            self.unskip_direct_dependents(st, &task_id);
+            st.scheduler.on_success(&task_id);
+        } else if matches!(final_status, TaskStatus::Failed { .. }) {
+            // Cascade: nothing downstream of a failure can run this pass.
+            self.cascade_skip(st, &task_id);
+        }
+
+        self.pump_ready(run_id, st, sup_tx, semaphore).await;
+    }
+
+    /// Reset direct dependents that were skipped earlier (e.g. before a
+    /// restart repaired the upstream failure) so they can be scheduled again.
+    fn unskip_direct_dependents(&self, st: &mut RunState, task_id: &TaskId) {
+        for dep in self.graph.dependents_of(task_id) {
+            if let Some(rec) = st.records.get_mut(&dep) {
+                if matches!(rec.status, TaskStatus::Skipped { .. }) {
+                    rec.status = TaskStatus::Pending;
+                }
             }
-            if blocked {
+        }
+    }
+
+    fn cascade_skip(&self, st: &mut RunState, failed: &TaskId) {
+        for dep in st.scheduler.transitive_dependents_to_skip(failed) {
+            if let Some(rec) = st.records.get_mut(&dep) {
+                if matches!(rec.status, TaskStatus::Pending | TaskStatus::Ready) {
+                    rec.status = TaskStatus::Skipped {
+                        reason: SkipReason::UpstreamFailed,
+                    };
+                    let _ = self.event_tx.send(EngineEvent::TaskSkipped {
+                        id: dep,
+                        reason: SkipReason::UpstreamFailed,
+                    });
+                }
+            }
+        }
+    }
+
+    /// Drain the ready queue while concurrency permits are available: skip
+    /// blocked tasks, serve cache hits, spawn supervisors for the rest.
+    async fn pump_ready(
+        &self,
+        run_id: RunId,
+        st: &mut RunState,
+        sup_tx: &mpsc::UnboundedSender<SupervisorMsg>,
+        semaphore: &Arc<Semaphore>,
+    ) {
+        while let Some(task_id) = st.scheduler.pop_ready() {
+            let Some(spec) = self.registry.get(&task_id) else {
+                continue;
+            };
+            let spec = spec.clone();
+
+            if self.is_blocked(st, &spec) {
+                let Some(rec) = st.records.get_mut(&task_id) else {
+                    continue;
+                };
                 rec.status = TaskStatus::Skipped {
                     reason: SkipReason::UpstreamFailed,
                 };
-                let _ = event_tx.send(EngineEvent::TaskSkipped {
-                    id: task_id.clone(),
+                let _ = self.event_tx.send(EngineEvent::TaskSkipped {
+                    id: task_id,
                     reason: SkipReason::UpstreamFailed,
                 });
                 continue;
             }
 
-            // cache check
-            if spec.cacheable {
-                if let Some(hit) = Self::check_cache_hit(&spec, cache, event_tx, cache_key_cache, output_digest_cache).await {
-                    if hit {
-                        rec.status = TaskStatus::Cached { attempt: rec.next_attempt };
-                        let _ = event_tx.send(EngineEvent::TaskCacheHit { id: task_id.clone() });
-                        // treat as success for dependents
-                        let _ = scheduler.on_success(&task_id);
-                        // continue to schedule dependents immediately (loop)
-                        continue;
-                    }
+            // Already terminal or currently live? Nothing to do.
+            if let Some(rec) = st.records.get(&task_id) {
+                if rec.status.is_terminal() || st.live.contains_key(&task_id) {
+                    continue;
                 }
             }
 
-            // acquire permit
-            let permit = match semaphore.clone().try_acquire_owned() {
-                Ok(p) => p,
-                Err(_) => {
-                    // no permits, push back and break
-                    scheduler.push_ready(task_id);
-                    break;
-                }
+            if spec.cacheable && self.try_cache_hit(&spec, st).await {
+                let Some(rec) = st.records.get_mut(&task_id) else {
+                    continue;
+                };
+                rec.status = TaskStatus::Cached {
+                    attempt: rec.next_attempt,
+                };
+                let _ = self.event_tx.send(EngineEvent::TaskCacheHit { id: task_id.clone() });
+                // A hit counts as success for dependents.
+                st.scheduler.on_success(&task_id);
+                continue;
+            }
+
+            // No free permit? Put the task back and wait for an exit.
+            let Ok(permit) = semaphore.clone().try_acquire_owned() else {
+                st.scheduler.push_ready(task_id);
+                break;
             };
-            // we will hold permit until task exits; we forget it here and release via add_permits(1) on exit
+            // The permit is released via `add_permits(1)` in `on_task_exit`.
             std::mem::forget(permit);
 
-            let attempt = rec.next_attempt;
-            rec.status = TaskStatus::Running { attempt };
-            rec.next_attempt = attempt.next();
+            let attempt = match st.records.get(&task_id) {
+                Some(rec) => rec.next_attempt,
+                None => continue,
+            };
+            {
+                let Some(rec) = st.records.get_mut(&task_id) else {
+                    continue;
+                };
+                rec.status = TaskStatus::Running { attempt };
+                rec.next_attempt = attempt.next();
+            }
 
             let key = ExecKey::new(run_id, task_id.clone(), attempt);
             let (cmd_tx, cmd_rx) = mpsc::channel(4);
-            let ev_tx = sup_tx.clone();
-            let log_tx = log_router.sender();
-
             let opts = SupervisorOpts {
                 key: key.clone(),
                 spec: Arc::clone(&spec),
             };
-            let join = spawn_supervisor(opts, cmd_rx, ev_tx, log_tx, event_tx.clone());
+            spawn_supervisor(opts, cmd_rx, sup_tx.clone(), self.log_router.sender(), self.event_tx.clone());
+            st.live.insert(task_id.clone(), LiveHandle { cmd_tx });
 
-            live.insert(
-                task_id.clone(),
-                LiveHandle {
-                    attempt,
-                    cmd_tx,
-                    join,
-                },
-            );
-            let _ = event_tx.send(EngineEvent::TaskStarted {
-                id: task_id.clone(),
+            let _ = self.event_tx.send(EngineEvent::TaskStarted {
+                id: task_id,
                 attempt,
-                pid: 0, // pid will be sent via SupervisorMsg::Started; we could wait for it but not needed
+                pid: 0,
             });
-            let _ = event_tx.send(EngineEvent::TaskReady(task_id.clone()));
         }
     }
 
-    async fn check_cache_hit(
-        spec: &fyrer_core::spec::TaskSpec,
-        cache: &Arc<dyn CacheProvider>,
-        event_tx: &broadcast::Sender<EngineEvent>,
-        cache_key_cache: &mut HashMap<TaskId, String>,
-        output_digest_cache: &mut HashMap<TaskId, String>,
-    ) -> Option<bool> {
-        // compute cache key memoized
-        let key = match Self::compute_cache_key(spec, cache_key_cache) {
-            Ok(k) => k,
-            Err(e) => {
-                let _ = event_tx.send(EngineEvent::NonFatalError {
-                    task_id: Some(spec.id.clone()),
-                    error: format!("failed to compute cache key: {e}"),
-                });
-                return Some(false);
-            }
+    /// A task is blocked when any direct dependency failed or was skipped.
+    fn is_blocked(&self, st: &RunState, spec: &TaskSpec) -> bool {
+        spec.depends_on.iter().any(|dep| {
+            st.records
+                .get(dep)
+                .is_some_and(|r| matches!(r.status, TaskStatus::Failed { .. } | TaskStatus::Skipped { .. }))
+        })
+    }
+
+    /// Check the cache for a task. On a hit with stale outputs, restore them
+    /// into the task's cwd. Returns true on a usable hit.
+    async fn try_cache_hit(&self, spec: &TaskSpec, st: &mut RunState) -> bool {
+        let Some(key) = self.cache_key_for(spec, &mut st.cache_keys) else {
+            return false;
         };
-        if !cache.contains(&key) {
-            return Some(false);
+        if !self.cache.contains(&key) {
+            return false;
         }
-        let digest = match Self::compute_output_digest(spec, output_digest_cache) {
-            Ok(d) => d,
-            Err(e) => {
-                let _ = event_tx.send(EngineEvent::NonFatalError {
-                    task_id: Some(spec.id.clone()),
-                    error: format!("failed to compute output digest: {e}"),
-                });
-                return Some(false);
-            }
-        };
-        match cache.need_hydration(&key, &digest) {
-            Ok(false) => Some(true),
-            Ok(true) => {
-                // need restore
-                match cache.restore(&key, &spec.cwd) {
-                    Ok(true) => Some(true),
-                    Ok(false) => Some(false),
-                    Err(e) => {
-                        let _ = event_tx.send(EngineEvent::NonFatalError {
-                            task_id: Some(spec.id.clone()),
-                            error: format!("failed to restore cache: {e}"),
-                        });
-                        Some(false)
-                    }
+        let digest = output_digest(spec, &mut st.output_digests);
+        match self.cache.need_hydration(&key, &digest) {
+            Ok(false) => true,
+            Ok(true) => match self.cache.restore(&key, &spec.cwd) {
+                Ok(restored) => restored,
+                Err(e) => {
+                    self.report_error(&spec.id, format!("failed to restore cache: {e}"));
+                    false
                 }
-            }
+            },
             Err(e) => {
-                let _ = event_tx.send(EngineEvent::NonFatalError {
-                    task_id: Some(spec.id.clone()),
-                    error: format!("failed to check hydration: {e}"),
-                });
-                Some(false)
+                self.report_error(&spec.id, format!("failed to check hydration: {e}"));
+                false
             }
         }
     }
 
-    fn compute_cache_key(
-        spec: &fyrer_core::spec::TaskSpec,
-        cache: &mut HashMap<TaskId, String>,
-    ) -> anyhow::Result<String> {
-        if let Some(k) = cache.get(&spec.id) {
-            return Ok(k.clone());
+    async fn save_to_cache(&self, spec: &TaskSpec, cache_keys: &mut HashMap<TaskId, String>, outcome: &TaskOutcome) {
+        let Some(key) = self.cache_key_for(spec, cache_keys) else {
+            return;
+        };
+        let digest = output_digest(spec, &mut HashMap::new());
+        let metadata = CacheMetadata::new(
+            spec.id.to_string(),
+            outcome.duration.as_millis(),
+            outcome.exit_code,
+            CacheStatus::Miss,
+            key.clone(),
+            digest,
+            chrono::Utc::now().timestamp_millis() as u64,
+        );
+        if let Err(e) = self.cache.save(&key, &resolve_outputs(spec), metadata) {
+            self.report_error(&spec.id, format!("failed to save cache: {e}"));
+        }
+    }
+
+    /// Memoized blake3 over id + cmd + cwd + env + input file contents.
+    fn cache_key_for(&self, spec: &TaskSpec, memo: &mut HashMap<TaskId, String>) -> Option<String> {
+        if let Some(key) = memo.get(&spec.id) {
+            return Some(key.clone());
         }
         let mut hasher = blake3::Hasher::new();
         hasher.update(spec.id.to_string().as_bytes());
@@ -641,177 +548,123 @@ impl Engine {
         let mut env: Vec<_> = spec.env.iter().collect();
         env.sort_by_key(|(k, _)| *k);
         for (k, v) in env {
-            hash::hash_kv(&mut hasher, k, v);
+            hash_kv(&mut hasher, k, v);
         }
-        let inputs = resolve_inputs(spec);
-        for p in inputs {
-            if p.is_file() {
-                hash::hash_file(&mut hasher, &p)?;
+        for path in resolve_inputs(spec) {
+            if path.is_file() {
+                if let Err(e) = hash_file(&mut hasher, &path) {
+                    self.report_error(&spec.id, format!("failed to compute cache key: {e}"));
+                    return None;
+                }
             }
         }
-        // deps are not recursively hashed here? To avoid exponential, we rely on cache_key_cache already containing deps? Simpler: include deps keys if present in cache map, else hash dep's own content similarly? For now we include dep id + cmd etc.
-        // To match prior behavior, we recursively hash deps but memoized
         let key = hasher.finalize().to_hex().to_string();
-        cache.insert(spec.id.clone(), key.clone());
-        Ok(key)
+        memo.insert(spec.id.clone(), key.clone());
+        Some(key)
     }
 
-    fn compute_output_digest(
-        spec: &fyrer_core::spec::TaskSpec,
-        cache: &mut HashMap<TaskId, String>,
-    ) -> anyhow::Result<String> {
-        // not memoized strongly but cheap
-        let mut hasher = blake3::Hasher::new();
-        let outputs = resolve_outputs(spec);
-        for p in outputs {
-            if p.is_file() {
-                hash::hash_file(&mut hasher, &p)?;
-            }
-        }
-        Ok(hasher.finalize().to_hex().to_string())
-    }
-
-    async fn try_cache_save(
-        spec: &fyrer_core::spec::TaskSpec,
-        cache: &Arc<dyn CacheProvider>,
-        event_tx: &broadcast::Sender<EngineEvent>,
-        cache_key_cache: &mut HashMap<TaskId, String>,
-        duration_ms: u128,
-        exit_code: i32,
-    ) {
-        let cache_key = match Self::compute_cache_key(spec, cache_key_cache) {
-            Ok(k) => k,
-            Err(e) => {
-                let _ = event_tx.send(EngineEvent::NonFatalError {
-                    task_id: Some(spec.id.clone()),
-                    error: format!("failed to compute cache key: {e}"),
-                });
-                return;
-            }
-        };
-        let mut tmp_cache = HashMap::new();
-        let output_digest = match Self::compute_output_digest(spec, &mut tmp_cache) {
-            Ok(d) => d,
-            Err(e) => {
-                let _ = event_tx.send(EngineEvent::NonFatalError {
-                    task_id: Some(spec.id.clone()),
-                    error: format!("failed to compute output digest: {e}"),
-                });
-                return;
-            }
-        };
-        let metadata = CacheMetadata::new(
-            spec.id.to_string(),
-            duration_ms,
-            exit_code,
-            CacheStatus::Miss,
-            cache_key.clone(),
-            output_digest.clone(),
-            chrono::Utc::now().timestamp_millis() as u64,
-        );
-        let outputs = resolve_outputs(spec);
-        if let Err(e) = cache.save(&cache_key, &outputs, metadata) {
-            let _ = event_tx.send(EngineEvent::NonFatalError {
-                task_id: Some(spec.id.clone()),
-                error: format!("failed to save cache: {e}"),
-            });
-        }
-    }
-
-    fn build_summary(records: &HashMap<TaskId, TaskRecord>, duration: Duration) -> RunSummary {
-        let mut successful = 0;
-        let mut failed = 0;
-        let mut cached = 0;
-        let mut skipped = 0;
-        for r in records.values() {
-            match r.status {
-                TaskStatus::Succeeded { .. } => successful += 1,
-                TaskStatus::Failed { .. } => failed += 1,
-                TaskStatus::Cached { .. } => cached += 1,
-                TaskStatus::Skipped { .. } => skipped += 1,
-                _ => {}
-            }
-        }
-        RunSummary {
-            total: records.len(),
-            successful,
-            cached,
-            failed,
-            skipped,
-            duration,
-        }
-    }
-
-    pub fn event_sender(&self) -> broadcast::Sender<EngineEvent> {
-        self.event_tx.clone()
+    fn report_error(&self, task: &TaskId, error: String) {
+        let _ = self.event_tx.send(EngineEvent::NonFatalError {
+            task_id: Some(task.clone()),
+            error,
+        });
     }
 }
 
-fn glob_with_patterns(cwd: &std::path::Path, pat: &str) -> Vec<std::path::PathBuf> {
-    let base = cwd.join(pat).to_string_lossy().to_string();
-    let mut pats = vec![base.clone()];
+/// Map a process exit to the task status it implies.
+fn classify_exit(outcome: &TaskOutcome, restart_pending: bool) -> TaskStatus {
+    match &outcome.exit {
+        ExitReason::Success(0) => TaskStatus::Succeeded {
+            attempt: outcome.attempt,
+        },
+        ExitReason::Timeout | ExitReason::Killed if restart_pending => {
+            TaskStatus::Restarting { from: outcome.attempt }
+        }
+        ExitReason::Success(_) | ExitReason::Failure(_) => TaskStatus::Failed {
+            attempt: outcome.attempt,
+        },
+        ExitReason::Signal(_) | ExitReason::SpawnError(_) => TaskStatus::Failed {
+            attempt: outcome.attempt,
+        },
+        _ => TaskStatus::Failed {
+            attempt: outcome.attempt,
+        },
+    }
+}
+
+fn build_summary(records: &HashMap<TaskId, TaskRecord>, duration: Duration) -> RunSummary {
+    let mut successful = 0;
+    let mut cached = 0;
+    let mut failed = 0;
+    let mut skipped = 0;
+    for rec in records.values() {
+        match rec.status {
+            TaskStatus::Succeeded { .. } => successful += 1,
+            TaskStatus::Cached { .. } => cached += 1,
+            TaskStatus::Failed { .. } => failed += 1,
+            TaskStatus::Skipped { .. } => skipped += 1,
+            _ => {}
+        }
+    }
+    RunSummary {
+        total: records.len(),
+        successful,
+        cached,
+        failed,
+        skipped,
+        duration,
+    }
+}
+
+// --- glob resolution -------------------------------------------------------
+
+/// Expand one glob relative to the task cwd. Rust's glob needs explicit file
+/// matching after a bare `/**`, so trailing-`**` patterns gain extra arms.
+fn glob_with_patterns(cwd: &std::path::Path, pattern: &str) -> Vec<std::path::PathBuf> {
+    let base = cwd.join(pattern).to_string_lossy().to_string();
+    let mut patterns = vec![base.clone()];
     if base.ends_with("/**") {
-        pats.push(format!("{}/{}", base.trim_end_matches("/**"), "**/*"));
-        pats.push(format!("{}/{}", base, "*"));
+        patterns.push(format!("{}/*", base.trim_end_matches("/**")));
+        patterns.push(format!("{base}/**/*"));
     }
     let mut out = Vec::new();
-    for p in &pats {
-        if let Ok(paths) = glob::glob(p) {
-            for path in paths.flatten() {
-                out.push(path);
-            }
+    for pattern in &patterns {
+        if let Ok(paths) = glob::glob(pattern) {
+            out.extend(paths.flatten());
         }
     }
     out
 }
 
-fn resolve_outputs(spec: &fyrer_core::spec::TaskSpec) -> Vec<std::path::PathBuf> {
-    let mut out = Vec::new();
-    for pat in &spec.outputs {
-        out.extend(glob_with_patterns(&spec.cwd, pat));
-    }
-    out
-}
-fn resolve_inputs(spec: &fyrer_core::spec::TaskSpec) -> Vec<std::path::PathBuf> {
-    let ignore: std::collections::HashSet<_> = {
-        let mut s = std::collections::HashSet::new();
-        for pat in &spec.ignore {
-            for p in glob_with_patterns(&spec.cwd, pat) {
-                s.insert(p);
-            }
-        }
-        s
-    };
-    let mut out = Vec::new();
-    for pat in &spec.inputs {
-        for p in glob_with_patterns(&spec.cwd, pat) {
-            if ignore.contains(&p) {
-                continue;
-            }
-            out.push(p);
-        }
-    }
-    out
+fn resolve_outputs(spec: &TaskSpec) -> Vec<std::path::PathBuf> {
+    spec.outputs.iter().flat_map(|p| glob_with_patterns(&spec.cwd, p)).collect()
 }
 
-mod hash {
-    pub fn hash_kv(hasher: &mut blake3::Hasher, k: &str, v: &str) {
-        hasher.update(k.as_bytes());
-        hasher.update(b"=");
-        hasher.update(v.as_bytes());
-        hasher.update(b"\n");
-    }
-    pub fn hash_file(hasher: &mut blake3::Hasher, p: &std::path::Path) -> std::io::Result<()> {
-        use std::io::Read;
-        let mut f = std::fs::File::open(p)?;
-        let mut buf = [0u8; 8192];
-        loop {
-            let n = f.read(&mut buf)?;
-            if n == 0 {
-                break;
+fn resolve_inputs(spec: &TaskSpec) -> Vec<std::path::PathBuf> {
+    let ignored: std::collections::HashSet<_> = spec
+        .ignore
+        .iter()
+        .flat_map(|p| glob_with_patterns(&spec.cwd, p))
+        .collect();
+    resolve_outputs_like_inputs(spec)
+        .into_iter()
+        .filter(|p| !ignored.contains(p))
+        .collect()
+}
+
+fn resolve_outputs_like_inputs(spec: &TaskSpec) -> Vec<std::path::PathBuf> {
+    spec.inputs.iter().flat_map(|p| glob_with_patterns(&spec.cwd, p)).collect()
+}
+
+/// Memoized blake3 over produced files. Cheap enough not to need caching.
+fn output_digest(spec: &TaskSpec, _memo: &mut HashMap<TaskId, String>) -> String {
+    let mut hasher = blake3::Hasher::new();
+    for path in resolve_outputs(spec) {
+        if path.is_file() {
+            if let Err(e) = hash_file(&mut hasher, &path) {
+                eprintln!("[engine] output digest failed for {}: {e}", spec.id);
             }
-            hasher.update(&buf[..n]);
         }
-        Ok(())
     }
+    hasher.finalize().to_hex().to_string()
 }

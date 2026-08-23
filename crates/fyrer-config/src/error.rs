@@ -10,6 +10,14 @@ pub enum ConfigError {
     Validation(#[from] ValidationError),
 }
 
+impl ValidationError {
+    /// Shorthand for wrapping a validation failure in the top-level error.
+    #[must_use]
+    pub fn into_config_error(self) -> anyhow::Error {
+        ConfigError::Validation(self).into()
+    }
+}
+
 #[derive(Debug, Error)]
 pub enum ValidationError {
     #[error("unsupported version: {0}")]

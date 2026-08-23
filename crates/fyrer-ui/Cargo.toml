@@ -8,9 +8,9 @@ description = "UI reporters for fyrer"
 repository.workspace = true
 
 [dependencies]
-fyrer-core = { path = "../fyrer-core" }
-fyrer-engine = { path = "../fyrer-engine" }
-fyrer-log = { path = "../fyrer-log" }
+fyrer-core.workspace = true
+fyrer-engine.workspace = true
+fyrer-log.workspace = true
 anyhow = "1.0"
 tokio = { version = "1.30", features = ["full"] }
 ratatui = "0.30.2"

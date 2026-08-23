@@ -622,33 +622,17 @@ dependencies = [
 name = "fyrer"
 version = "0.3.3"
 dependencies = [
- "ansi-to-tui",
  "anyhow",
- "blake3",
- "chrono",
  "clap",
- "crossterm",
  "fyrer-cache",
  "fyrer-config",
  "fyrer-core",
  "fyrer-engine",
  "fyrer-log",
- "fyrer-process",
  "fyrer-ui",
  "fyrer-watch",
- "glob",
- "humantime-serde",
- "libc",
  "owo-colors",
- "ratatui",
- "serde",
- "serde_json",
- "serde_yaml",
- "tar",
- "tempfile",
- "thiserror 1.0.69",
  "tokio",
- "zstd",
 ]
 
 [[package]]
@@ -2286,6 +2270,10 @@ dependencies = [
  "libc",
  "rustix",
 ]
+
+[[package]]
+name = "xtask"
+version = "0.3.3"
 
 [[package]]
 name = "zmij"
