@@ -9,18 +9,19 @@ description: "fyrer list reads your fyrer.yml and prints every package and its t
 ## Synopsis
 
 ```bash
-fyrer [--config <path>] list
+fyrer list
+fyrer --config <path> list   # custom config location
 ```
 
 ## Arguments
 
-<ParamField path="--config" type="string" default="fyrer.yml">
+<ParamField path="--config" default="fyrer.yml" type="string">
   Path to the config file.
 </ParamField>
 
 ## Example output
 
-```
+```text
 Package: ui
   Task: build
     Command: bun build src/index.ts --outdir dist

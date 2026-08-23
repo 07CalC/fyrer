@@ -9,14 +9,17 @@ description: "fyrer run executes tasks from your fyrer.yml, resolves the depende
 ## Synopsis
 
 ```bash
-fyrer [--config <path>] run [<task>] [-n]
+fyrer run [TASK] [-n]
+fyrer --config <path> run [TASK] [-n]   # custom config location
+fyrer -c <path> run [TASK]              # short form
 ```
 
 ## Arguments and flags
 
 <ParamField path="task" type="string">
   Optional task specifier. Three forms:
-  - *(empty)* — run every task in every package
+
+  - _(empty)_ — run every task in every package
   - `build` — run the `build` task in every package that has one
   - `web:dev` — run exactly the `dev` task in the `web` package
 </ParamField>
@@ -25,7 +28,7 @@ fyrer [--config <path>] run [<task>] [-n]
   Print plain, prefixed, colorized log output instead of opening the full-screen TUI. Useful in CI environments and when piping output.
 </ParamField>
 
-<ParamField path="--config" type="string" default="fyrer.yml">
+<ParamField path="--config" default="fyrer.yml" type="string">
   Path to the config file. Resolved relative to the current directory.
 </ParamField>
 
